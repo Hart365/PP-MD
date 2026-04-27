@@ -1,0 +1,125 @@
+/*
+ * DropZone.module.css
+ * Styles for the file drop-zone component.
+ * All interactive states meet WCAG 2.2 1.4.11 (Non-text Contrast).
+ */
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  min-height: 220px;
+  border: 2px dashed var(--color-dropzone-border);
+  border-radius: var(--border-radius-lg);
+  background: var(--color-dropzone-bg);
+  cursor: pointer;
+  transition: border-color var(--transition-base), background var(--transition-base);
+  padding: 2rem;
+  text-align: center;
+  /* Ensure the element communicates its interactivity in high-contrast mode */
+  forced-color-adjust: auto;
+}
+
+.dropzone:hover,
+.dropzone:focus-within {
+  border-color: var(--color-accent);
+  background: var(--color-dropzone-active);
+}
+
+.dropzone.active {
+  border-color: var(--color-accent);
+  background: var(--color-dropzone-active);
+  border-style: solid;
+}
+
+.icon {
+  font-size: 3rem;
+  /* aria-hidden on the icon SVG, so this is presentational */
+  line-height: 1;
+  color: var(--color-text-muted);
+}
+
+.title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.subtitle {
+  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+  max-width: 420px;
+}
+
+.browseBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1.25rem;
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+  border: none;
+  border-radius: var(--border-radius-md);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.browseBtn:hover {
+  background: var(--color-accent-hover);
+}
+
+.fileList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  max-width: 480px;
+}
+
+.fileItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.65rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-md);
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+
+.fileIcon {
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+
+.fileName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
+}
+
+.removeBtn {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0.2rem 0.3rem;
+  border-radius: var(--border-radius-sm);
+  line-height: 1;
+  font-size: 1rem;
+  transition: color var(--transition-fast);
+}
+
+.removeBtn:hover {
+  color: var(--color-error);
+}

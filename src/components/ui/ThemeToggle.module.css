@@ -1,0 +1,37 @@
+/*
+ * ThemeToggle.module.css
+ */
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.85rem;
+  background: transparent;
+  border: 2px solid var(--color-border);
+  border-radius: var(--border-radius-pill);
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+  white-space: nowrap;
+}
+
+.toggle:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+.icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.label {
+  /* Visible on wider viewports, hidden on narrow screens */
+}
+
+@media (max-width: 480px) {
+  .label { display: none; }
+}

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      Content Security Policy:
+      - default-src 'self': only allow resources from the same origin
+      - script-src 'self' 'unsafe-eval': unsafe-eval needed for mermaid diagram rendering
+      - style-src 'self' 'unsafe-inline': inline styles needed for mermaid and react
+      - img-src 'self' data: blob:: allow data URIs and blob URLs for chart exports
+      - worker-src blob:: mermaid uses blob workers
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src blob:;"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
+      theme-color helps browser UI match the app theme.
+      Updated dynamically by ThemeContext in JS.
+    -->
+    <meta name="theme-color" content="#1e1e2e" />
+    <title>PP-MD — Power Platform Documentation Generator</title>
+    <meta
+      name="description"
+      content="Generate comprehensive Markdown documentation from Power Platform solution ZIP files, including Mermaid diagrams for ERD, architecture, and process flows."
+    />
+  </head>
+  <body>
+    <!--
+      #root is the React mount point.
+      The 'noscript' fallback meets WCAG 2.2 Guideline 4.1 (Robust) requirements
+      by informing users when JavaScript is unavailable.
+    -->
+    <noscript>
+      <p style="padding:2rem;font-family:sans-serif">
+        PP-MD requires JavaScript. Please enable JavaScript to use this application.
+      </p>
+    </noscript>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
