@@ -1,0 +1,8 @@
+version: 1.0.0
+files:
+  - url: PP-MD-1.0.0-x64-installer.exe
+    sha512: U2YyOZjAnAnDv5rzGj31Xxfc+85kX+/WjlTHu/ThgJFyLIbfVxXW77+6pJY//y0P7eA3K9C4th7ciVTwZfmEJw==
+    size: 107297261
+path: PP-MD-1.0.0-x64-installer.exe
+sha512: U2YyOZjAnAnDv5rzGj31Xxfc+85kX+/WjlTHu/ThgJFyLIbfVxXW77+6pJY//y0P7eA3K9C4th7ciVTwZfmEJw==
+releaseDate: '2026-04-28T07:58:42.940Z'
