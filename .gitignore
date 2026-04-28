@@ -25,3 +25,9 @@ dist-ssr
 
 # Temporary output folders created by scripts/build-latest.ps1
 release-temp-*/
+
+# Release output folders (builds are now done via GitHub Actions)
+release/
+release_latest/
+release_latest_portable/
+release_latest_installer/
