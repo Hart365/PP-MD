@@ -31,3 +31,5 @@ release/
 release_latest/
 release_latest_portable/
 release_latest_installer/
+release_portable_build*/
+temp/

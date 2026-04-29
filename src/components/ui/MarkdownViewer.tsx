@@ -1,18 +1,11 @@
 /**
  * @file MarkdownViewer.tsx
- * @description Renders a Markdown string using react-markdown with GitHub
- * Flavored Markdown support.  Mermaid code fence blocks are intercepted and
- * rendered via the {@link MermaidDiagram} component.
- *
- * WCAG compliance:
- *  - 1.1.1 Non-text Content: Mermaid diagrams have text alternatives.
- *  - 1.3.1 Info & Relationships: Semantic HTML headings/lists/tables preserved.
- *  - 2.1.1 Keyboard: All interactive elements (copy button, export) are
- *    keyboard-accessible.
- *  - 4.1.3 Status Messages: Copy confirmation announced via aria-live.
+ * @description Renders Markdown with GFM, Mermaid diagram support, and a
+ * raw/rendered toggle. WCAG compliant with accessible diagrams, headings,
+ * tables, and copy/export actions.
  */
 
-import { useState, useCallback, useRef, type ReactNode } from 'react';
+import { useState, useCallback, useRef, type MouseEvent, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -20,54 +13,113 @@ import { MermaidDiagram } from './MermaidDiagram';
 import styles from './MarkdownViewer.module.css';
 
 export interface MarkdownViewerProps {
-  /** The raw Markdown string to render */
   markdown: string;
-  /** Optional title shown above the content */
   title?: string;
-  /** Callback for exporting the Markdown as a .md file */
   onExport?: () => void;
 }
 
+/**
+ * Extract text from nested React nodes.
+ */
 function extractText(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
-  if (Array.isArray(node)) return node.map((child) => extractText(child)).join(' ');
+  if (Array.isArray(node)) return node.map(extractText).join(' ');
   if (node && typeof node === 'object' && 'props' in node) {
     return extractText((node as { props?: { children?: ReactNode } }).props?.children);
   }
   return '';
 }
 
-function headingId(children: ReactNode): string {
-  const raw = extractText(children)
+/**
+ * Convert node text to URL-safe heading ID.
+ */
+function slugifyHeading(children: ReactNode): string {
+  return extractText(children)
     .toLowerCase()
     .replace(/[^\w\s-]/g, '')
     .trim()
-    .replace(/\s+/g, '-');
-  return raw || 'section';
+    .replace(/\s+/g, '-') || 'section';
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 /**
- * Renders Markdown content with Mermaid diagram support, a raw-source toggle,
- * and export/copy actions.
+ * Renders Markdown with diagram support, raw/rendered toggle, and export.
  */
 export function MarkdownViewer({ markdown, title, onExport }: MarkdownViewerProps) {
-  /** Whether to show raw Markdown source rather than rendered HTML */
-  const [showRaw,   setShowRaw]   = useState(false);
-  /** Confirmation message after copying to clipboard */
-  const [copyMsg,   setCopyMsg]   = useState('');
-  const headingCountsRef = useRef<Map<string, number>>(new Map());
-  headingCountsRef.current = new Map();
+  const [showRaw, setShowRaw] = useState(false);
+  const [copyMsg, setCopyMsg] = useState('');
+  const contentRef = useRef<HTMLDivElement>(null);
 
-  const uniqueHeadingId = (children: ReactNode): string => {
-    const base = headingId(children);
-    const counts = headingCountsRef.current;
-    const current = counts.get(base) ?? 0;
-    counts.set(base, current + 1);
-    return current === 0 ? base : `${base}-${current}`;
+  const scrollToHeading = useCallback((href: string) => {
+    if (!contentRef.current || !href.startsWith('#')) return false;
+
+    const rawTarget = href.slice(1).trim();
+    if (!rawTarget) return false;
+
+    const decodedTarget = (() => {
+      try {
+        return decodeURIComponent(rawTarget);
+      } catch {
+        return rawTarget;
+      }
+    })();
+
+    const escapedId = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+      ? CSS.escape(decodedTarget)
+      : decodedTarget.replace(/([ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1');
+
+    let target = contentRef.current.querySelector<HTMLElement>(`#${escapedId}`);
+
+    if (!target) {
+      const lower = decodedTarget.toLowerCase();
+      target = Array
+        .from(contentRef.current.querySelectorAll<HTMLElement>('[id]'))
+        .find((el) => el.id.toLowerCase() === lower) ?? null;
+    }
+
+    if (!target) return false;
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+    window.history.replaceState(null, '', `#${rawTarget}`);
+    return true;
+  }, []);
+
+  const makeHeading = (Tag: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6') => {
+    return ({ children, ...props }: any) => {
+      const id = slugifyHeading(children);
+      return <Tag id={id} {...props}>{children}</Tag>;
+    };
+  };
+
+  const components = {
+    code: ({ className, children, ...props }: any) => {
+      const lang = /language-(\w+)/.exec(className)?.[1] ?? '';
+      if (lang !== 'mermaid') {
+        return <code className={className} {...props}>{children}</code>;
+      }
+      const src = String(children).replace(/\n$/, '');
+      const cap = src.match(/%%\s*(.+?)\s*%%/)?.[1] ?? 'Diagram';
+      return <MermaidDiagram chart={src} caption={cap} />;
+    },
+    h1: makeHeading('h1'),
+    h2: makeHeading('h2'),
+    h3: makeHeading('h3'),
+    h4: makeHeading('h4'),
+    h5: makeHeading('h5'),
+    h6: makeHeading('h6'),
+    a: ({ href, children, ...props }: any) => {
+      const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+        if (!href?.startsWith('#')) return;
+        if (!scrollToHeading(href)) return;
+        event.preventDefault();
+      };
+
+      return <a href={href} {...props} onClick={handleClick}>{children}</a>;
+    },
+    table: ({ children, ...props }: any) => (
+      <div style={{ overflowX: 'auto', margin: '1rem 0' }} role="region" aria-label="Table">
+        <table {...props}>{children}</table>
+      </div>
+    ),
   };
 
   const handleCopy = useCallback(async () => {
@@ -76,22 +128,35 @@ export function MarkdownViewer({ markdown, title, onExport }: MarkdownViewerProp
       setCopyMsg('Copied!');
       setTimeout(() => setCopyMsg(''), 2000);
     } catch {
-      setCopyMsg('Copy failed — please select and copy manually.');
+      setCopyMsg('Copy failed — select and copy manually.');
       setTimeout(() => setCopyMsg(''), 3000);
     }
   }, [markdown]);
+
+  const handleContentClickCapture = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+
+    const anchor = target.closest('a[href]') as HTMLAnchorElement | null;
+    if (!anchor) return;
+
+    const href = anchor.getAttribute('href') || '';
+    if (!href.startsWith('#')) return;
+
+    if (scrollToHeading(href)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, [scrollToHeading]);
 
   return (
     <section
       className={styles.viewer}
       aria-label={title ? `Documentation for ${title}` : 'Generated documentation'}
     >
-      {/* ── Toolbar ──────────────────────────────────────────────────────── */}
       <div className={styles.toolbar} role="toolbar" aria-label="Documentation actions">
         {title && <h2 className={styles.viewerTitle}>{title}</h2>}
-
         <div className={styles.actions}>
-          {/* Raw/Rendered toggle */}
           <button
             type="button"
             className={styles.toolbarBtn}
@@ -101,8 +166,6 @@ export function MarkdownViewer({ markdown, title, onExport }: MarkdownViewerProp
           >
             {showRaw ? '🖼️ Rendered' : '📝 Raw MD'}
           </button>
-
-          {/* Copy */}
           <button
             type="button"
             className={styles.toolbarBtn}
@@ -111,8 +174,6 @@ export function MarkdownViewer({ markdown, title, onExport }: MarkdownViewerProp
           >
             📋 Copy
           </button>
-
-          {/* Export */}
           {onExport && (
             <button
               type="button"
@@ -125,86 +186,25 @@ export function MarkdownViewer({ markdown, title, onExport }: MarkdownViewerProp
           )}
         </div>
       </div>
-
-      {/* Copy confirmation — announced to screen readers via aria-live */}
       {copyMsg && (
-        <div
-          aria-live="polite"
-          className={styles.copyToast}
-          role="status"
-        >
+        <div aria-live="polite" className={styles.copyToast} role="status">
           {copyMsg}
         </div>
       )}
-
-      {/* ── Content area ─────────────────────────────────────────────────── */}
       {showRaw ? (
-        /* Raw Markdown source */
         <pre className={styles.rawSource} aria-label="Raw Markdown source">
           <code>{markdown}</code>
         </pre>
       ) : (
-        /* Rendered Markdown */
-        <div className={`${styles.content} markdown-body`}>
+        <div
+          ref={contentRef}
+          className={`${styles.content} markdown-body`}
+          onClickCapture={handleContentClickCapture}
+        >
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeRaw]}
-            components={{
-              /**
-               * Override code blocks: intercept ```mermaid``` fences and render
-               * them as live diagrams; all other fences render as normal code.
-               */
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              code({ className, children, ...props }: any) {
-                const language = /language-(\w+)/.exec(className || '')?.[1] ?? '';
-                const codeStr  = String(children).replace(/\n$/, '');
-
-                if (language === 'mermaid') {
-                  // Extract the title from the Mermaid %% comment if present
-                  const titleMatch = codeStr.match(/%%\s*(.+?)\s*%%/);
-                  const diagramTitle = titleMatch ? titleMatch[1] : 'Diagram';
-                  return <MermaidDiagram chart={codeStr} caption={diagramTitle} />;
-                }
-
-                return (
-                  <code className={className} {...props}>
-                    {children}
-                  </code>
-                );
-              },
-
-              /**
-               * Add id anchors to headings so the Table of Contents links work.
-               */
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              h1({ children, ...props }: any) {
-                const id = uniqueHeadingId(children as ReactNode);
-                return <h1 id={id} {...props}>{children}</h1>;
-              },
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              h2({ children, ...props }: any) {
-                const id = uniqueHeadingId(children as ReactNode);
-                return <h2 id={id} {...props}>{children}</h2>;
-              },
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              h3({ children, ...props }: any) {
-                const id = uniqueHeadingId(children as ReactNode);
-                return <h3 id={id} {...props}>{children}</h3>;
-              },
-
-              /**
-               * Ensure table elements are wrapped in a scrollable container
-               * so they don't overflow on narrow viewports (WCAG 1.4.10 Reflow).
-               */
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              table({ children, ...props }: any) {
-                return (
-                  <div style={{ overflowX: 'auto', margin: '1rem 0' }} role="region" aria-label="Table">
-                    <table {...props}>{children}</table>
-                  </div>
-                );
-              },
-            }}
+            components={components}
           >
             {markdown}
           </ReactMarkdown>

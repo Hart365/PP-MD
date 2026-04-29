@@ -28,7 +28,7 @@ module.exports = async function afterPack(context) {
   }
 
   const rceditModule = await import('rcedit');
-  const rcedit = rceditModule.default || rceditModule;
+  const rcedit = rceditModule.rcedit || rceditModule.default || rceditModule;
   const version = normalizeWindowsVersion(context.packager.appInfo.version);
 
   await rcedit(appExePath, {

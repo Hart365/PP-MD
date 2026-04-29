@@ -260,7 +260,7 @@ function processTitle(proc: ProcessDefinition): string {
 }
 
 function appTitle(app: AppDefinition): string {
-  return labelWithSchema(app.displayName || app.name, app.uniqueName);
+  return stripTrailingGuid(app.displayName || app.name || app.uniqueName) || 'Unknown';
 }
 
 function uniqueStrings(values: Array<string | undefined | null>): string[] {
@@ -577,17 +577,15 @@ function generateHeader(solution: ParsedSolution, documentContext?: DocumentCont
     '',
     heading(2, 'Solution Overview'),
     '',
-    '| Property | Value |',
-    '|----------|-------|',
-    `| **Unique Name** | ${mdEscape(metadata.uniqueName)} |`,
-    `| **Display Name** | ${mdEscape(metadata.displayName)} |`,
-    `| **Version** | ${mdEscape(metadata.version)} |`,
-    `| **Publisher** | ${mdEscape(metadata.publisherName)} |`,
-    `| **Type** | ${metadata.isManaged ? 'Managed' : 'Unmanaged'} |`,
+    `- **Unique Name:** ${mdEscape(metadata.uniqueName)}`,
+    `- **Display Name:** ${mdEscape(metadata.displayName)}`,
+    `- **Version:** ${mdEscape(metadata.version)}`,
+    `- **Publisher:** ${mdEscape(metadata.publisherName)}`,
+    `- **Type:** ${metadata.isManaged ? 'Managed' : 'Unmanaged'}`,
   );
 
   if (metadata.description) {
-    lines.push(`| **Description** | ${mdEscape(metadata.description)} |`);
+    lines.push(`- **Description:** ${mdEscape(metadata.description)}`);
   }
 
   lines.push('');
@@ -700,7 +698,7 @@ function generateERD(
 
       // Dataverse relationship metadata consistently exposes referenced (parent/one)
       // and referencing (child/many). Render as one-to-many crow's foot.
-      const key = `${referenced}|\|\|--o\{|${referencing}|${relLabel}`;
+      const key = `${referenced}|||--o{|${referencing}|${relLabel}`;
       if (emittedRelationships.has(key)) return;
       emittedRelationships.add(key);
       relationships.push({ from: referenced, to: referencing, marker: '||--o{', label: relLabel });

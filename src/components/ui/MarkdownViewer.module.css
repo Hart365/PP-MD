@@ -50,29 +50,31 @@
   padding: 0.35rem 0.85rem;
   background: var(--color-surface);
   color: var(--color-text-primary);
-  border: 1px solid var(--color-border);
+  border: 2px solid var(--color-border);
   border-radius: var(--border-radius-md);
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
   white-space: nowrap;
 }
 
 .toolbarBtn:hover {
   background: var(--color-surface-hover);
   border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
 }
 
 .toolbarBtn.primary {
   background: var(--color-accent);
-  color: var(--color-text-inverse);
+  color: #ffffff;
   border-color: var(--color-accent);
 }
 
 .toolbarBtn.primary:hover {
   background: var(--color-accent-hover);
   border-color: var(--color-accent-hover);
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.25);
 }
 
 /* ── Copy toast ───────────────────────────────────────────────────────── */
@@ -91,6 +93,16 @@
   overflow-y: auto;
   overflow-x: hidden;
   line-height: 1.7;
+  scroll-behavior: smooth;
+}
+
+.content :global(h1),
+.content :global(h2),
+.content :global(h3),
+.content :global(h4),
+.content :global(h5),
+.content :global(h6) {
+  scroll-margin-top: 1rem;
 }
 
 .rawSource {

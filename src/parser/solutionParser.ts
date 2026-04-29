@@ -1176,7 +1176,7 @@ function parseFlowDefinition(
 
     // Parse actions recursively
     const parseActions = (actionMap: Record<string, unknown>, parentId?: string): ProcessStep[] => {
-      return Object.entries(actionMap).map(([actionName, actionDef], _idx) => {
+      return Object.entries(actionMap).map(([actionName, actionDef]) => {
         const ad = actionDef as Record<string, unknown>;
         const actionType = xmlStr(ad, 'type');
 

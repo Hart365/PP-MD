@@ -88,6 +88,26 @@ function toSafeMarkdownBaseName(rawName: string | undefined | null, fallback: st
     .replace(/\s+/g, '_');
 }
 
+function solutionDisplayName(solution: ParsedSolution): string {
+  return (solution.metadata.displayName || solution.metadata.uniqueName || '').trim();
+}
+
+function sortSolutionResults(results: SolutionResult[]): SolutionResult[] {
+  return [...results].sort((left, right) => solutionDisplayName(left.solution).localeCompare(
+    solutionDisplayName(right.solution),
+    undefined,
+    { numeric: true, sensitivity: 'base' },
+  ));
+}
+
+function sortFilesByName(files: File[]): File[] {
+  return [...files].sort((left, right) => left.name.localeCompare(
+    right.name,
+    undefined,
+    { numeric: true, sensitivity: 'base' },
+  ));
+}
+
 function readSavedConfigurations(): SavedDocumentConfiguration[] {
   try {
     const raw = localStorage.getItem(LOCAL_CONFIG_STORAGE_KEY);
@@ -147,6 +167,25 @@ function buildConsolidatedResult(
     fileName: 'consolidated-summary.md',
     isConsolidated: true,
   };
+}
+
+function rebuildResults(
+  results: SolutionResult[],
+  erdMode: ErdMode,
+  documentContext: DocumentContext,
+): SolutionResult[] {
+  const base = sortSolutionResults(results
+    .filter((entry) => !entry.isConsolidated)
+    .map((entry) => ({
+      ...entry,
+      markdown: generateMarkdown(entry.solution, { erdMode, documentContext }),
+    })));
+
+  if (base.length > 1) {
+    return [buildConsolidatedResult(base, erdMode, documentContext), ...base];
+  }
+
+  return base;
 }
 
 /**
@@ -239,15 +278,25 @@ export default function App() {
   }, []);
 
   const applyConfiguration = useCallback((config: SavedDocumentConfiguration) => {
-    setDocumentContext({
+    const nextDocumentContext: DocumentContext = {
       client: config.client ?? '',
       project: config.project ?? '',
       contract: config.contract ?? '',
       sow: config.sow ?? '',
       sprint: config.sprint ?? '',
       releaseDate: config.releaseDate ?? '',
+    };
+
+    setDocumentContext({
+      client: nextDocumentContext.client,
+      project: nextDocumentContext.project,
+      contract: nextDocumentContext.contract,
+      sow: nextDocumentContext.sow,
+      sprint: nextDocumentContext.sprint,
+      releaseDate: nextDocumentContext.releaseDate,
     });
-  }, []);
+    setResults((prev) => rebuildResults(prev, erdMode, nextDocumentContext));
+  }, [erdMode]);
 
   const handleConfigurationSelect = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     const value = event.target.value;
@@ -260,9 +309,11 @@ export default function App() {
   }, [configurations, applyConfiguration]);
 
   const handleContextChange = useCallback((field: keyof DocumentContext, value: string) => {
+    const nextDocumentContext = { ...documentContext, [field]: value };
     setSelectedConfigId('custom');
-    setDocumentContext((prev) => ({ ...prev, [field]: value }));
-  }, []);
+    setDocumentContext(nextDocumentContext);
+    setResults((prev) => rebuildResults(prev, erdMode, nextDocumentContext));
+  }, [documentContext, erdMode]);
 
   const handleSaveConfiguration = useCallback(() => {
     const name = newConfigName.trim();
@@ -342,11 +393,13 @@ export default function App() {
    * @param files - Files selected by the user
    */
   const handleFilesSelected = useCallback(async (files: File[]) => {
+    const sortedFiles = sortFilesByName(files);
+
     setIsProcessing(true);
-    setStatusMsg(`Processing ${files.length} file${files.length > 1 ? 's' : ''}…`);
+    setStatusMsg(`Processing ${sortedFiles.length} file${sortedFiles.length > 1 ? 's' : ''}…`);
 
     // Initialise progress tracking for all files
-    const initial: ProcessingEntry[] = files.map((f) => ({
+    const initial: ProcessingEntry[] = sortedFiles.map((f) => ({
       fileName: f.name,
       progress: 0,
     }));
@@ -354,8 +407,8 @@ export default function App() {
 
     const newResults: SolutionResult[] = [];
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    for (let i = 0; i < sortedFiles.length; i++) {
+      const file = sortedFiles[i];
 
       try {
         setStatusMsg(`Parsing ${file.name}…`);
@@ -381,7 +434,7 @@ export default function App() {
 
     if (newResults.length > 0) {
       const existingBase = results.filter((r) => !r.isConsolidated);
-      const mergedBase = [...existingBase, ...newResults];
+      const mergedBase = sortSolutionResults([...existingBase, ...newResults]);
       const nextResults = mergedBase.length > 1
         ? [buildConsolidatedResult(mergedBase, erdMode, documentContext), ...mergedBase]
         : mergedBase;
@@ -389,7 +442,7 @@ export default function App() {
       setResults(nextResults);
       setActiveIdx(nextResults.length > 1 && nextResults[0].isConsolidated ? 0 : Math.max(0, nextResults.length - 1));
       const count  = newResults.length;
-      const failed = files.length - count;
+      const failed = sortedFiles.length - count;
       setStatusMsg(
         failed > 0
           ? `Done: ${count} document${count > 1 ? 's' : ''} generated, ${failed} file${failed > 1 ? 's' : ''} failed.`
@@ -407,19 +460,7 @@ export default function App() {
   const handleToggleErdMode = useCallback(() => {
     const nextMode: ErdMode = erdMode === 'detailed-relationships' ? 'compact' : 'detailed-relationships';
 
-    setResults((prev) => {
-      const base = prev
-        .filter((r) => !r.isConsolidated)
-        .map((r) => ({
-          ...r,
-          markdown: generateMarkdown(r.solution, { erdMode: nextMode, documentContext }),
-        }));
-
-      if (base.length > 1) {
-        return [buildConsolidatedResult(base, nextMode, documentContext), ...base];
-      }
-      return base;
-    });
+    setResults((prev) => rebuildResults(prev, nextMode, documentContext));
 
     setErdMode(nextMode);
     setStatusMsg(`ERD mode switched to ${nextMode === 'compact' ? 'Compact' : 'Detailed-Relationships'}.`);
@@ -449,25 +490,6 @@ export default function App() {
       }, 300);
     }, 50);
   }, [results]);
-
-  useEffect(() => {
-    if (results.length === 0) return;
-
-    setResults((prev) => {
-      const base = prev
-        .filter((entry) => !entry.isConsolidated)
-        .map((entry) => ({
-          ...entry,
-          markdown: generateMarkdown(entry.solution, { erdMode, documentContext }),
-        }));
-
-      if (base.length > 1) {
-        return [buildConsolidatedResult(base, erdMode, documentContext), ...base];
-      }
-
-      return base;
-    });
-  }, [documentContext]);
 
   // ── Export ────────────────────────────────────────────────────────────────
 
@@ -826,7 +848,10 @@ export default function App() {
             <div className={styles.viewerWrapper}>
               {isViewerLoading ? (
                 <div className={styles.viewerLoadingState} role="status" aria-live="polite" aria-busy="true">
-                  <p className={styles.viewerLoadingText}>Please Wait - rendering markdown document...</p>
+                  <div className={styles.viewerLoadingCard}>
+                    <span className={styles.viewerLoadingSpinner} aria-hidden="true" />
+                    <p className={styles.viewerLoadingText}>Please Wait - rendering markdown document...</p>
+                  </div>
                 </div>
               ) : (
                 <MarkdownViewer

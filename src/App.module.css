@@ -472,15 +472,37 @@
   padding: 1rem;
 }
 
+.viewerLoadingCard {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 0.9rem 1.1rem;
+}
+
+.viewerLoadingSpinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 999px;
+  animation: viewerSpin 0.8s linear infinite;
+}
+
 .viewerLoadingText {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
   color: var(--color-text-primary);
-  background: #e0f2fe;
-  border: 1px solid #7dd3fc;
-  border-radius: var(--border-radius-md);
-  padding: 0.75rem 1rem;
+}
+
+@keyframes viewerSpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* --------------------------------------------------------------------------

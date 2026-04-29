@@ -1,7 +1,7 @@
 {
   "name": "pp-md",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Power Platform solution documentation generator for Windows desktop.",
   "author": "Mike Hartley",
   "companyName": "Hart of the Midlands",
@@ -20,32 +20,37 @@
     "desktop:build": "npm run build && set PPMD_FLAVOR=portable&& set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win portable",
     "desktop:build:installer": "npm run build && set PPMD_FLAVOR=installer&& set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win nsis",
     "preview": "vite preview",
-    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint src --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
-    "fast-xml-parser": "^5.5.9",
+    "fast-xml-parser": "^5.7.2",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.1",
-    "mermaid": "^11.4.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-markdown": "^9.0.1",
+    "mermaid": "^11.14.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-markdown": "^10.1.0",
     "rehype-raw": "^7.0.0",
-    "remark-gfm": "^4.0.0"
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/file-saver": "^2.0.7",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.3",
-    "concurrently": "^9.0.1",
-    "electron": "^32.2.0",
-    "electron-builder": "^25.1.8",
-    "rcedit": "^4.0.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.2.1",
+    "electron": "^41.3.0",
+    "electron-builder": "^26.8.1",
+    "eslint": "^10.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.5.0",
+    "rcedit": "^5.0.2",
     "tsx": "^4.21.0",
-    "typescript": "~5.6.2",
-    "vite": "^6.0.1",
-    "wait-on": "^8.0.1"
+    "typescript-eslint": "^8.59.1",
+    "typescript": "~6.0.3",
+    "vite": "^8.0.10",
+    "wait-on": "^9.0.5"
   },
   "build": {
     "afterPack": "scripts/electron-builder-after-pack.cjs",

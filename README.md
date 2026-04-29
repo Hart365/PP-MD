@@ -170,8 +170,8 @@ The ERD can be rendered in two modes, toggled in the toolbar:
 
 | Layer | Technology |
 |---|---|
-| Desktop shell | Electron 32 |
-| Frontend | React 18 + TypeScript + Vite 6 |
+| Desktop shell | Electron 41 |
+| Frontend | React 19 + TypeScript 6 + Vite 8 |
 | ZIP parsing | JSZip |
 | XML parsing | fast-xml-parser (XXE-safe configuration) |
 | Markdown rendering | react-markdown + remark-gfm + rehype-raw |

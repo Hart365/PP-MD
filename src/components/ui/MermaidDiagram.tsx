@@ -1,247 +1,275 @@
 /**
  * @file MermaidDiagram.tsx
- * @description Renders a Mermaid diagram from a DSL string using the Mermaid
- * library loaded dynamically.  Provides a text fallback for screen readers
- * (the raw Mermaid source in a <details> block).
- *
- * WCAG compliance:
- *  - 1.1.1 Non-text Content: An accessible text alternative is exposed via
- *    a <details> / <summary> toggle beneath each diagram.
- *  - 4.1.3 Status Messages: Renders a loading and error state.
- *  - 1.4.3 Contrast: Error/info messages use semantic colour tokens.
+ * @description Renders a Mermaid diagram with zoom controls, fullscreen support,
+ * and accessible fallback. Dynamically imports Mermaid to keep bundle small.
+ * WCAG: 1.1.1 (text alternative), 4.1.3 (status/error messages), 1.4.3 (contrast).
  */
 
 import { useEffect, useRef, useState, useId, useMemo } from 'react';
 
+const mermaidCfg = {
+  startOnLoad: false,
+  theme: 'neutral' as const,
+  securityLevel: 'strict' as const,
+  fontFamily: "'Segoe UI', system-ui, sans-serif",
+  themeVariables: { fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: '11px' },
+  flowchart: { useMaxWidth: false, htmlLabels: false },
+  er: { useMaxWidth: false },
+};
+
+const btnStyle = {
+  padding: '0.35rem 0.65rem',
+  background: 'var(--color-surface)',
+  color: 'var(--color-text-primary)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--border-radius-md)',
+  fontSize: '0.8125rem',
+  fontWeight: 500,
+  cursor: 'pointer',
+  transition: 'all var(--transition-fast)',
+} as const;
+
 export interface MermaidDiagramProps {
-  /** Mermaid DSL source string (without the fence markers) */
   chart: string;
-  /** Accessible caption / title for the diagram */
   caption?: string;
 }
 
 /**
- * Renders a single Mermaid diagram asynchronously.
- * Falls back to the raw source if Mermaid fails to render.
+ * Renders a Mermaid diagram with zoom/pan/fullscreen controls.
  */
 export function MermaidDiagram({ chart, caption = 'Diagram' }: MermaidDiagramProps) {
-  const figureRef = useRef<HTMLElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [error,    setError]    = useState<string>('');
+  const figRef = useRef<HTMLElement>(null);
+  const ctrRef = useRef<HTMLDivElement>(null);
+  const scrlRef = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState('');
   const [rendered, setRendered] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [svgNaturalWidth, setSvgNaturalWidth] = useState<number | null>(null);
-  const zoomPercent = useMemo(() => `${Math.round(zoom * 100)}%`, [zoom]);
-  // Generate a unique ID for this diagram instance (required by Mermaid)
-  const diagramId = useId().replace(/:/g, '_');
+  const [fs, setFs] = useState(false);
+  const [w, setW] = useState<number | null>(null);
+  const pct = useMemo(() => `${Math.round(zoom * 100)}%`, [zoom]);
+  const id = useId().replace(/:/g, '_');
 
   const fitZoom = () => {
-    if (!scrollRef.current || !svgNaturalWidth) return;
-    const containerWidth = scrollRef.current.clientWidth - 16; // subtract padding
-    const fit = Number(Math.max(0.1, (containerWidth / svgNaturalWidth) * 0.97).toFixed(2));
-    setZoom(fit);
+    if (!scrlRef.current || !w) return;
+    const pw = scrlRef.current.clientWidth - 16;
+    setZoom(Math.max(0.1, Math.min(8, (pw / w) * 0.97)));
   };
 
-  const toggleFullscreen = async () => {
-    if (!figureRef.current) return;
+  const toggleFs = async () => {
+    if (!figRef.current) return;
     try {
-      if (document.fullscreenElement === figureRef.current) {
+      if (document.fullscreenElement === figRef.current) {
         await document.exitFullscreen();
       } else {
-        await figureRef.current.requestFullscreen();
+        await figRef.current.requestFullscreen();
       }
     } catch {
-      // best-effort only
+      // noop
     }
   };
 
   useEffect(() => {
-    const onFullscreenChange = () => {
-      setIsFullscreen(document.fullscreenElement === figureRef.current);
+    const handleFsChange = () => {
+      setFs(document.fullscreenElement === figRef.current);
     };
-
-    document.addEventListener('fullscreenchange', onFullscreenChange);
-    return () => {
-      document.removeEventListener('fullscreenchange', onFullscreenChange);
-    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    setError('');
-    setRendered(false);
+    let active = true;
 
     const render = async () => {
       try {
-        // Dynamic import keeps Mermaid out of the main bundle chunk
-        const mermaid = (await import('mermaid')).default;
+        const m = (await import('mermaid')).default;
+        m.initialize(mermaidCfg);
+        if (!active) return;
+        setError('');
+        setRendered(false);
+        const { svg } = await m.render(`m_${id}`, chart);
 
-        mermaid.initialize({
-          startOnLoad: false,
-          theme:       'neutral',
-          securityLevel: 'strict',
-          fontFamily: "'Segoe UI', system-ui, sans-serif",
-          themeVariables: {
-            fontFamily: "'Segoe UI', system-ui, sans-serif",
-            // 8pt ~= 10.67px. Use 11px minimum for legibility.
-            fontSize: '11px',
-          },
-          flowchart: { useMaxWidth: false, htmlLabels: false },
-          er: { useMaxWidth: false },
-        });
+        if (!active || !ctrRef.current) return;
+        ctrRef.current.innerHTML = svg;
 
-        const { svg } = await mermaid.render(`m_${diagramId}`, chart);
+        const svgEl = ctrRef.current.querySelector('svg');
+        if (!svgEl) return;
 
-        if (cancelled) return;
+        svgEl.setAttribute('role', 'img');
+        svgEl.setAttribute('aria-label', caption);
+        svgEl.setAttribute('preserveAspectRatio', 'xMinYMin meet');
 
-        if (containerRef.current) {
-          // DOMPurify is not available here but Mermaid's strict security
-          // level sanitises the SVG output itself.
-          containerRef.current.innerHTML = svg;
-
-          // Add role="img" and aria-label to the SVG for AT
-          const svgEl = containerRef.current.querySelector('svg');
-          if (svgEl) {
-            svgEl.setAttribute('role', 'img');
-            svgEl.setAttribute('aria-label', caption);
-            svgEl.setAttribute('preserveAspectRatio', 'xMinYMin meet');
-
-            // Keep natural diagram dimensions so overflow scrolling and zoom
-            // can reveal dense content without shrinking text to fit container width.
-            const viewBox = svgEl.getAttribute('viewBox')?.trim();
-            if (viewBox) {
-              const parts = viewBox.split(/\s+/);
-              if (parts.length === 4) {
-                const vbWidth = Number(parts[2]);
-                const vbHeight = Number(parts[3]);
-                if (Number.isFinite(vbWidth) && vbWidth > 0) {
-                  svgEl.style.width = `${vbWidth}px`;
-                  svgEl.style.minWidth = `${vbWidth}px`;
-                  setSvgNaturalWidth(vbWidth);
-                }
-                if (Number.isFinite(vbHeight) && vbHeight > 0) {
-                  svgEl.style.height = `${vbHeight}px`;
-                }
-              }
-            }
-
-            svgEl.removeAttribute('width');
-            svgEl.removeAttribute('height');
-            svgEl.style.maxWidth = 'none';
-            svgEl.style.display = 'block';
-            svgEl.style.margin = '0';
-
-            // Enforce minimum label size of 8pt for readability.
-            svgEl.style.fontSize = '8pt';
-            svgEl.querySelectorAll('text').forEach((textNode) => {
-              const textEl = textNode as SVGTextElement;
-              const explicit = textEl.getAttribute('font-size');
-              if (!explicit) {
-                textEl.setAttribute('font-size', '8pt');
-                return;
-              }
-
-              const parsed = Number.parseFloat(explicit);
-              if (!Number.isFinite(parsed)) return;
-
-              const isPt = explicit.toLowerCase().includes('pt');
-              const isPx = explicit.toLowerCase().includes('px');
-              if (isPt && parsed < 8) textEl.setAttribute('font-size', '8pt');
-              if (isPx && parsed < 10.67) textEl.setAttribute('font-size', '8pt');
-            });
+        // Extract viewBox and set dimensions
+        const vb = svgEl.getAttribute('viewBox')?.trim()?.split(/\s+/);
+        if (vb && vb.length === 4) {
+          const vw = Number(vb[2]);
+          if (Number.isFinite(vw) && vw > 0) {
+            svgEl.style.width = `${vw}px`;
+            svgEl.style.minWidth = `${vw}px`;
+            setW(vw);
+          }
+          const vh = Number(vb[3]);
+          if (Number.isFinite(vh) && vh > 0) {
+            svgEl.style.height = `${vh}px`;
           }
         }
+
+        svgEl.removeAttribute('width');
+        svgEl.removeAttribute('height');
+        Object.assign(svgEl.style, { maxWidth: 'none', display: 'block', margin: 0, fontSize: '8pt' });
+
+        // Enforce minimum text size
+        svgEl.querySelectorAll('text').forEach((el) => {
+          const sz = el.getAttribute('font-size');
+          if (!sz) {
+            el.setAttribute('font-size', '8pt');
+          } else {
+            const num = parseFloat(sz);
+            const isPt = sz.toLowerCase().includes('pt');
+            const isPx = sz.toLowerCase().includes('px');
+            if ((isPt && num < 8) || (isPx && num < 10.67)) {
+              el.setAttribute('font-size', '8pt');
+            }
+          }
+        });
+
         setRendered(true);
-      } catch (err: unknown) {
-        if (!cancelled) {
-          setError(`Diagram could not be rendered: ${(err as Error).message}`);
+      } catch (e) {
+        if (active) {
+          setError(`Failed to render: ${(e as Error).message}`);
         }
       }
     };
 
     render();
-    return () => { cancelled = true; };
-  }, [chart, caption, diagramId]);
+    return () => { active = false; };
+  }, [chart, caption, id]);
+
+  const toolbarStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: '0.5rem',
+    marginBottom: '0.5rem',
+    position: 'sticky' as const,
+    top: 0,
+    zIndex: 1,
+    background: 'var(--color-surface)',
+    padding: '0.25rem 0',
+  };
 
   return (
     <figure
-      ref={figureRef}
+      ref={figRef}
       aria-label={caption}
       style={{
         margin: '1.5rem 0',
         width: '100%',
+        height: fs ? '100vh' : 'auto',
+        display: 'flex',
+        flexDirection: 'column',
         overflow: 'visible',
         background: 'var(--color-surface)',
         color: 'var(--color-text-primary)',
-        padding: isFullscreen ? '0.75rem' : 0,
+        padding: fs ? '0.75rem' : 0,
+        boxSizing: 'border-box',
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          gap: '0.5rem',
-          marginBottom: '0.5rem',
-          position: 'sticky',
-          top: 0,
-          zIndex: 1,
-          background: 'var(--color-surface)',
-          padding: '0.25rem 0',
-        }}
-      >
-        <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{zoomPercent}</span>
+      <div style={toolbarStyle}>
+        <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{pct}</span>
         <button
           type="button"
-          onClick={() => setZoom((current) => Math.max(0.1, Number((current - 0.1).toFixed(2))))}
-          aria-label="Zoom out diagram"
+          onClick={() => setZoom((c) => Math.max(0.1, c - 0.1))}
+          aria-label="Zoom out"
+          style={btnStyle}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-accent)';
+            (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 0 0 2px rgba(37,99,235,0.1)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-border)';
+            (e.currentTarget as HTMLButtonElement).style.boxShadow = 'none';
+          }}
         >
           −
         </button>
         <button
           type="button"
           onClick={() => setZoom(1)}
-          aria-label="Reset diagram zoom to 100%"
+          aria-label="Reset zoom"
+          style={btnStyle}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-accent)';
+            (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 0 0 2px rgba(37,99,235,0.1)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-border)';
+            (e.currentTarget as HTMLButtonElement).style.boxShadow = 'none';
+          }}
         >
           1×
         </button>
         <button
           type="button"
           onClick={fitZoom}
-          aria-label="Fit diagram to container width"
-          disabled={!svgNaturalWidth}
+          aria-label="Fit to width"
+          disabled={!w}
+          style={btnStyle}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-accent)';
+            (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 0 0 2px rgba(37,99,235,0.1)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-border)';
+            (e.currentTarget as HTMLButtonElement).style.boxShadow = 'none';
+          }}
         >
           Fit
         </button>
         <button
           type="button"
-          onClick={() => setZoom((current) => Math.min(8, Number((current + 0.1).toFixed(2))))}
-          aria-label="Zoom in diagram"
+          onClick={() => setZoom((c) => Math.min(8, c + 0.1))}
+          aria-label="Zoom in"
+          style={btnStyle}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-accent)';
+            (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 0 0 2px rgba(37,99,235,0.1)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-border)';
+            (e.currentTarget as HTMLButtonElement).style.boxShadow = 'none';
+          }}
         >
           +
         </button>
         <button
           type="button"
-          onClick={toggleFullscreen}
-          aria-label={isFullscreen ? 'Exit diagram fullscreen' : 'Open diagram in fullscreen'}
+          onClick={toggleFs}
+          aria-label={fs ? 'Exit fullscreen' : 'Fullscreen'}
+          style={btnStyle}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-accent)';
+            (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 0 0 2px rgba(37,99,235,0.1)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-border)';
+            (e.currentTarget as HTMLButtonElement).style.boxShadow = 'none';
+          }}
         >
-          {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
+          {fs ? '✕ Exit FS' : '⛶ Full Screen'}
         </button>
       </div>
 
-      {/* The Mermaid SVG will be injected here */}
       <div
-        ref={scrollRef}
+        ref={scrlRef}
         style={{
-          minHeight: rendered ? 'auto' : '60px',
+          flex: fs ? 1 : undefined,
+          minHeight: fs ? 0 : rendered ? 'auto' : '60px',
           overflowX: 'auto',
           overflowY: 'auto',
           border: '1px solid var(--color-code-border)',
           borderRadius: 'var(--border-radius-md)',
           padding: '0.5rem',
-          maxHeight: isFullscreen ? 'calc(100vh - 8rem)' : '85vh',
+          maxHeight: fs ? 'none' : '85vh',
           background: 'var(--color-surface)',
           cursor: zoom < 1 ? 'zoom-in' : zoom > 1 ? 'grab' : 'default',
         }}
@@ -254,11 +282,10 @@ export function MermaidDiagram({ chart, caption = 'Diagram' }: MermaidDiagramPro
             minWidth: 'max-content',
           }}
         >
-          <div ref={containerRef} aria-hidden={!rendered} />
+          <div ref={ctrRef} aria-hidden={!rendered} />
         </div>
       </div>
 
-      {/* Error state */}
       {error && (
         <div
           role="alert"
@@ -268,13 +295,13 @@ export function MermaidDiagram({ chart, caption = 'Diagram' }: MermaidDiagramPro
             color: 'var(--color-error)',
             borderRadius: 'var(--border-radius-md)',
             fontSize: '0.875rem',
+            marginTop: '0.5rem',
           }}
         >
           ⚠️ {error}
         </div>
       )}
 
-      {/* Accessible text fallback — always present */}
       <details style={{ marginTop: '0.5rem' }}>
         <summary
           style={{
@@ -283,10 +310,10 @@ export function MermaidDiagram({ chart, caption = 'Diagram' }: MermaidDiagramPro
             cursor: 'pointer',
           }}
         >
-          View diagram source ({caption})
+          Source ({caption})
         </summary>
         <pre
-          aria-label={`Mermaid source for: ${caption}`}
+          aria-label={`Source: ${caption}`}
           style={{
             marginTop: '0.5rem',
             fontSize: '0.75rem',
@@ -302,7 +329,6 @@ export function MermaidDiagram({ chart, caption = 'Diagram' }: MermaidDiagramPro
         </pre>
       </details>
 
-      {/* Visible caption */}
       {caption && (
         <figcaption
           style={{
@@ -318,3 +344,4 @@ export function MermaidDiagram({ chart, caption = 'Diagram' }: MermaidDiagramPro
     </figure>
   );
 }
+

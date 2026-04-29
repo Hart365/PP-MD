@@ -49,6 +49,14 @@ function humanSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+function sortFilesByName(files: File[]): File[] {
+  return [...files].sort((left, right) => left.name.localeCompare(
+    right.name,
+    undefined,
+    { numeric: true, sensitivity: 'base' },
+  ));
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -89,9 +97,9 @@ export function DropZone({ onFilesSelected, disabled = false }: DropZoneProps) {
       setQueuedFiles((prev) => {
         const merged = [...prev];
         valid.forEach((f) => {
-          if (!merged.some((x) => x.name === f.name)) merged.push(f);
+          if (!merged.some((x) => x.name.toLowerCase() === f.name.toLowerCase())) merged.push(f);
         });
-        return merged;
+        return sortFilesByName(merged);
       });
     },
     [],
@@ -157,7 +165,7 @@ export function DropZone({ onFilesSelected, disabled = false }: DropZoneProps) {
 
   const handleProcess = useCallback(() => {
     if (queuedFiles.length === 0) return;
-    onFilesSelected(queuedFiles);
+    onFilesSelected(sortFilesByName(queuedFiles));
   }, [queuedFiles, onFilesSelected]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
