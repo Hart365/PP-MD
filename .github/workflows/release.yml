@@ -3,18 +3,63 @@ name: Build & Release
 on:
   push:
     tags:
-      - 'v*.*.*'   # Triggers on tags like v1.0.0, v1.2.3
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing tag to build and publish assets for
+        required: true
+        default: v1.0.2
+      include_windows:
+        description: Also rebuild Windows assets
+        required: false
+        type: boolean
+        default: false
+      include_linux:
+        description: Build Linux AppImage
+        required: false
+        type: boolean
+        default: true
+      include_macos:
+        description: Build macOS DMG and ZIP
+        required: false
+        type: boolean
+        default: true
 
 permissions:
-  contents: write  # Required to create GitHub Releases and upload assets
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
 jobs:
+  ensure-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ensure release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists."
+          else
+            gh release create "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${RELEASE_TAG}" \
+              --generate-notes
+          fi
+
   build-windows:
+    needs: ensure-release
+    if: ${{ github.event_name == 'push' || inputs.include_windows }}
     runs-on: windows-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -40,24 +85,98 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder --win nsis --publish never "--config.directories.output=dist-installer"
 
-      - name: Upload portable artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: PP-MD-portable
-          path: dist-portable/*.exe
-          if-no-files-found: error
+      - name: Upload Windows assets to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${RELEASE_TAG}" dist-portable/*.exe dist-installer/*.exe --clobber --repo "${GITHUB_REPOSITORY}"
 
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: PP-MD-installer
-          path: dist-installer/*.exe
-          if-no-files-found: error
+  build-linux:
+    needs: ensure-release
+    if: ${{ github.event_name == 'push' || inputs.include_linux }}
+    runs-on: ubuntu-latest
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          files: |
-            dist-portable/*.exe
-            dist-installer/*.exe
-          generate_release_notes: true
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Vite app
+        run: npm run build
+
+      - name: Package Linux AppImage
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: >-
+          npx electron-builder --linux AppImage --x64 --publish never
+          "--config.directories.output=dist-linux"
+          "--config.linux.category=Development"
+          "--config.linux.icon=build/icon.png"
+
+      - name: Upload Linux assets to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${RELEASE_TAG}" dist-linux/*.AppImage --clobber --repo "${GITHUB_REPOSITORY}"
+
+  build-macos:
+    needs: ensure-release
+    if: ${{ github.event_name == 'push' || inputs.include_macos }}
+    runs-on: macos-13
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate macOS icon
+        run: |
+          rm -rf build/icon.iconset build/icon.icns
+          mkdir -p build/icon.iconset
+          sips -z 16 16 build/icon.png --out build/icon.iconset/icon_16x16.png
+          sips -z 32 32 build/icon.png --out build/icon.iconset/icon_16x16@2x.png
+          sips -z 32 32 build/icon.png --out build/icon.iconset/icon_32x32.png
+          sips -z 64 64 build/icon.png --out build/icon.iconset/icon_32x32@2x.png
+          sips -z 128 128 build/icon.png --out build/icon.iconset/icon_128x128.png
+          sips -z 256 256 build/icon.png --out build/icon.iconset/icon_128x128@2x.png
+          sips -z 256 256 build/icon.png --out build/icon.iconset/icon_256x256.png
+          sips -z 512 512 build/icon.png --out build/icon.iconset/icon_256x256@2x.png
+          sips -z 512 512 build/icon.png --out build/icon.iconset/icon_512x512.png
+          sips -z 1024 1024 build/icon.png --out build/icon.iconset/icon_512x512@2x.png
+          iconutil -c icns build/icon.iconset -o build/icon.icns
+
+      - name: Build Vite app
+        run: npm run build
+
+      - name: Package macOS DMG and ZIP
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: >-
+          npx electron-builder --mac dmg zip --x64 --publish never
+          "--config.directories.output=dist-mac"
+          "--config.mac.category=public.app-category.developer-tools"
+          "--config.mac.icon=build/icon.icns"
+
+      - name: Upload macOS assets to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${RELEASE_TAG}" dist-mac/*.dmg dist-mac/*.zip --clobber --repo "${GITHUB_REPOSITORY}"
