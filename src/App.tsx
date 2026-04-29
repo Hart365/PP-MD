@@ -28,6 +28,7 @@ import { ProgressBar }       from './components/ui/ProgressBar';
 import { MarkdownViewer }    from './components/ui/MarkdownViewer';
 import { SolutionSidebar }   from './components/SolutionSidebar';
 import { ThemeToggle }       from './components/ui/ThemeToggle';
+import { UpdateChecker }     from './components/ui/UpdateChecker';
 import { parseSolutionZip }  from './parser/solutionParser';
 import {
   generateMarkdown,
@@ -602,6 +603,7 @@ export default function App() {
                 ＋ New
               </button>
             )}
+            <UpdateChecker />
             <ThemeToggle />
           </div>
         </div>

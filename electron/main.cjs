@@ -1,5 +1,76 @@
 const path = require('node:path');
-const { app, BrowserWindow, dialog, shell } = require('electron');
+const { app, BrowserWindow, dialog, shell, ipcMain } = require('electron');
+
+// Ensure Windows uses our App User Model ID so the taskbar shows the app icon
+// rather than the generic Electron icon.
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.ppmd.desktop');
+}
+
+/**
+ * Get the current platform identifier
+ */
+function getPlatformName() {
+  switch (process.platform) {
+    case 'win32':
+      return 'windows';
+    case 'darwin':
+      return 'macos';
+    case 'linux':
+      return 'linux';
+    default:
+      return 'windows';
+  }
+}
+
+/**
+ * Get the current architecture identifier
+ */
+function getArchitectureName() {
+  const arch = process.arch;
+  return arch === 'arm64' ? 'arm64' : 'x64';
+}
+
+/**
+ * Detect whether the app is running as portable or installer
+ * For Windows: check if running from AppData or Program Files
+ * For macOS: check if running from /Applications
+ * For Linux: assume portable (AppImage)
+ */
+function getInstallationType() {
+  const exePath = app.getPath('exe').toLowerCase();
+
+  if (process.platform === 'win32') {
+    // If in AppData/Local/Programs, it's likely an installer
+    if (exePath.includes('appdata')) {
+      return 'installer';
+    }
+    return 'portable';
+  } else if (process.platform === 'darwin') {
+    // macOS: check if in Applications folder
+    if (exePath.includes('/applications/')) {
+      return 'installer';
+    }
+    return 'portable';
+  }
+
+  // Linux AppImage is considered portable
+  return 'portable';
+}
+
+/**
+ * Set up IPC handlers for app info
+ */
+function setupIpcHandlers() {
+  ipcMain.handle('get-app-info', async () => {
+    return {
+      version: app.getVersion(),
+      platform: getPlatformName(),
+      architecture: getArchitectureName(),
+      installType: getInstallationType(),
+    };
+  });
+}
 
 // Ensure Windows uses our App User Model ID so the taskbar shows the app icon
 // rather than the generic Electron icon.
@@ -21,6 +92,7 @@ function createMainWindow() {
       nodeIntegration: false,
       sandbox: true,
       devTools: true,
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   });
 
@@ -32,6 +104,13 @@ function createMainWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
+
+  // Inject app version into window after loading
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow.webContents.executeJavaScript(`
+      window.__PPMD_VERSION__ = '${app.getVersion()}';
+    `);
+  });
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     if (!isDev) {
@@ -56,6 +135,7 @@ function createMainWindow() {
 }
 
 app.whenReady().then(() => {
+  setupIpcHandlers();
   createMainWindow();
 
   app.on('activate', () => {
