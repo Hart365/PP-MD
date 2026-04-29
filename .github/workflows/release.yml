@@ -11,17 +11,17 @@ on:
         required: true
         default: v1.0.2
       include_windows:
-        description: Also rebuild Windows assets
+        description: Also rebuild Windows assets (x64 and arm64)
         required: false
         type: boolean
         default: false
       include_linux:
-        description: Build Linux AppImage
+        description: Build Linux AppImage assets (x64 and arm64)
         required: false
         type: boolean
         default: true
       include_macos:
-        description: Build macOS DMG and ZIP
+        description: Build macOS DMG and ZIP assets (x64 and arm64)
         required: false
         type: boolean
         default: true
@@ -73,17 +73,17 @@ jobs:
       - name: Build Vite app
         run: npm run build
 
-      - name: Package portable build
+      - name: Package portable builds (x64 and arm64)
         env:
           PPMD_FLAVOR: portable
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder --win portable --publish never "--config.directories.output=dist-portable"
+        run: npx electron-builder --win portable --x64 --arm64 --publish never "--config.directories.output=dist-portable"
 
-      - name: Package installer build
+      - name: Package installer builds (x64 and arm64)
         env:
           PPMD_FLAVOR: installer
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder --win nsis --publish never "--config.directories.output=dist-installer"
+        run: npx electron-builder --win nsis --x64 --arm64 --publish never "--config.directories.output=dist-installer"
 
       - name: Upload Windows assets to release
         shell: bash
@@ -114,11 +114,11 @@ jobs:
       - name: Build Vite app
         run: npm run build
 
-      - name: Package Linux AppImage
+      - name: Package Linux AppImage (x64 and arm64)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: >-
-          npx electron-builder --linux AppImage --x64 --publish never
+          npx electron-builder --linux AppImage --x64 --arm64 --publish never
           "--config.directories.output=dist-linux"
           "--config.linux.category=Development"
           "--config.linux.icon=build/icon.png"
@@ -167,11 +167,11 @@ jobs:
       - name: Build Vite app
         run: npm run build
 
-      - name: Package macOS DMG and ZIP
+      - name: Package macOS DMG and ZIP (x64 and arm64)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: >-
-          npx electron-builder --mac dmg zip --x64 --publish never
+          npx electron-builder --mac dmg zip --x64 --arm64 --publish never
           "--config.directories.output=dist-mac"
           "--config.mac.category=public.app-category.developer-tools"
           "--config.mac.icon=build/icon.icns"
