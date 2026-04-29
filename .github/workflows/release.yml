@@ -131,7 +131,7 @@ jobs:
   build-macos:
     needs: ensure-release
     if: ${{ github.event_name == 'push' || inputs.include_macos }}
-    runs-on: macos-13
+    runs-on: macos-latest
 
     steps:
       - name: Checkout repository
