@@ -1,7 +1,7 @@
 {
   "name": "pp-md",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Power Platform solution documentation generator for Windows desktop.",
   "author": "Mike Hartley",
   "companyName": "Hart of the Midlands",
