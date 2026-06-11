@@ -1,7 +1,7 @@
 {
   "name": "pp-md",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Power Platform solution documentation generator for Windows desktop.",
   "author": "Mike Hartley",
   "companyName": "Hart of the Midlands",
@@ -12,11 +12,16 @@
     "desktop:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
     "check:contrast": "node scripts/check-contrast.mjs",
     "smoke:doc": "tsx scripts/smoke-doc.ts",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:a11y": "playwright test -c playwright.a11y.config.ts",
+    "quality:gate": "npm run lint && npm run test:run && npm run smoke:doc && npm run build && npm run test:a11y",
     "build": "npm run check:contrast && tsc && vite build",
     "build:with-maps": "npm run check:contrast && tsc && vite build --mode debug",
     "desktop:stamp": "node scripts/stamp-exe.mjs",
     "desktop:build:latest": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-latest.ps1",
     "desktop:build:latest:skip-build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-latest.ps1 -SkipBuild",
+    "phase:complete": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/phase-complete.ps1",
     "desktop:build": "npm run build && set PPMD_FLAVOR=portable&& set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win portable",
     "desktop:build:installer": "npm run build && set PPMD_FLAVOR=installer&& set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win nsis",
     "preview": "vite preview",
@@ -34,22 +39,29 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.60.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/file-saver": "^2.0.7",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "axe-core": "^4.12.0",
     "concurrently": "^9.2.1",
     "electron": "^41.3.0",
     "electron-builder": "^26.8.1",
     "eslint": "^10.2.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.5.0",
+    "jsdom": "^29.1.1",
     "rcedit": "^5.0.2",
     "tsx": "^4.21.0",
-    "typescript-eslint": "^8.59.1",
     "typescript": "~6.0.3",
+    "typescript-eslint": "^8.59.1",
     "vite": "^8.0.10",
+    "vitest": "^4.1.8",
     "wait-on": "^9.0.5"
   },
   "build": {
@@ -94,13 +106,18 @@
       "uninstallerIcon": "build/icon.ico"
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "icon": "build/icon.png",
       "category": "Development",
       "artifactName": "PP-MD-${version}-${arch}.${ext}"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "build/icon.icns",
       "category": "public.app-category.developer-tools",
       "artifactName": "PP-MD-${version}-${arch}.${ext}"

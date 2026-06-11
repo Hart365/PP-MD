@@ -143,18 +143,6 @@ export function DropZone({ onFilesSelected, disabled = false }: DropZoneProps) {
     [handleFiles],
   );
 
-  // ── Keyboard activation of the browse button ────────────────────────────
-
-  const handleZoneKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if ((e.key === 'Enter' || e.key === ' ') && !disabled) {
-        e.preventDefault();
-        inputRef.current?.click();
-      }
-    },
-    [disabled],
-  );
-
   // ── Remove a single file from the queue ────────────────────────────────
 
   const removeFile = useCallback((name: string) => {
@@ -179,22 +167,18 @@ export function DropZone({ onFilesSelected, disabled = false }: DropZoneProps) {
   return (
     <div>
       {/*
-       * The drop zone container.
-       * role="button" + tabIndex=0 makes it keyboard-accessible
-       * aria-describedby points to the subtitle for richer context
+       * The drop zone container is a landmark region; the actual interactive
+       * browse action is handled by the dedicated button below.
        */}
       <div
         className={zoneClass}
-        role="button"
-        tabIndex={disabled ? -1 : 0}
-        aria-label="Drop zone: drag and drop Power Platform solution ZIP files here, or press Enter to browse"
+        role="region"
+        aria-label="Drop zone: drag and drop Power Platform solution ZIP files here"
         aria-disabled={disabled}
         aria-describedby="dz-subtitle"
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onKeyDown={handleZoneKeyDown}
-        onClick={() => !disabled && inputRef.current?.click()}
       >
         {/* aria-live region announces drag state to screen readers */}
         <div aria-live="polite" className="sr-only">
@@ -219,7 +203,6 @@ export function DropZone({ onFilesSelected, disabled = false }: DropZoneProps) {
           className={styles.browseBtn}
           disabled={disabled}
           aria-label="Browse for solution ZIP files"
-          tabIndex={-1} /* Parent div handles keyboard; avoid double tab stop */
           onClick={(e) => {
             e.stopPropagation();
             inputRef.current?.click();

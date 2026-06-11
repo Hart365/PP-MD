@@ -33,3 +33,10 @@ release_latest_portable/
 release_latest_installer/
 release_portable_build*/
 temp/
+
+# Local planning docs (not for GitHub)
+docs/local-implementation-plan.md
+
+# Automated test artifacts
+playwright-report/
+test-results/

@@ -31,9 +31,11 @@ import { ThemeToggle }       from './components/ui/ThemeToggle';
 import { UpdateChecker }     from './components/ui/UpdateChecker';
 import { parseSolutionZip }  from './parser/solutionParser';
 import {
+  DEFAULT_DOCUMENTATION_SETTINGS,
   generateMarkdown,
   generateConsolidatedMarkdown,
   consolidateSolutions,
+  type DocumentationSettings,
   type DocumentContext,
 } from './generator/markdownGenerator';
 import type { ParsedSolution } from './types/solution';
@@ -64,6 +66,8 @@ type ErdMode = 'compact' | 'detailed-relationships';
 interface SavedDocumentConfiguration extends DocumentContext {
   id: string;
   name: string;
+  schemaVersion?: number;
+  documentationSettings?: DocumentationSettings;
 }
 
 interface ConfigurationFile {
@@ -81,6 +85,96 @@ const EMPTY_DOCUMENT_CONTEXT: DocumentContext = {
   sprint: '',
   releaseDate: '',
 };
+
+const APP_DEFAULT_DOCUMENTATION_SETTINGS: DocumentationSettings = {
+  ...DEFAULT_DOCUMENTATION_SETTINGS,
+  metadata: {
+    ...DEFAULT_DOCUMENTATION_SETTINGS.metadata,
+    includeMetadataDiagnosticInfo: true,
+  },
+};
+
+function normalizeDocumentationSettings(settings: DocumentationSettings | undefined): DocumentationSettings {
+  const isValidSelectionMode = (mode: string | undefined): mode is DocumentationSettings['metadata']['attributeSelectionMode'] => {
+    return [
+      'all',
+      'custom-only',
+      'attributes-on-form',
+      'attributes-not-on-form',
+      'option-set-focused',
+      'manually-selected',
+      'unmanaged-only',
+    ].includes(mode ?? '');
+  };
+
+  const normalizedManualAttributes = (settings?.metadata?.manuallySelectedAttributes ?? [])
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry, index, all) => entry.length > 0 && all.indexOf(entry) === index);
+
+  return {
+    detailLevel: settings?.detailLevel === 'summary' ? 'summary' : 'detailed',
+    scope: {
+      flows: settings?.scope?.flows ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.flows,
+      apps: settings?.scope?.apps ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.apps,
+      security: settings?.scope?.security ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.security,
+      integration: settings?.scope?.integration ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.integration,
+      plugins: settings?.scope?.plugins ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.plugins,
+      reports: settings?.scope?.reports ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.reports,
+    },
+    metadata: {
+      includeAuditInfo: settings?.metadata?.includeAuditInfo ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeAuditInfo,
+      includeFieldSecurityFlags:
+        settings?.metadata?.includeFieldSecurityFlags ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeFieldSecurityFlags,
+      includeRequiredLevelInfo:
+        settings?.metadata?.includeRequiredLevelInfo ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeRequiredLevelInfo,
+      includeValidForAdvancedFindInfo:
+        settings?.metadata?.includeValidForAdvancedFindInfo ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeValidForAdvancedFindInfo,
+      includeMetadataDiagnosticInfo:
+        settings?.metadata?.includeMetadataDiagnosticInfo ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeMetadataDiagnosticInfo,
+      excludeVirtualAttributes:
+        settings?.metadata?.excludeVirtualAttributes ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.excludeVirtualAttributes,
+      attributeSelectionMode:
+        isValidSelectionMode(settings?.metadata?.attributeSelectionMode)
+          ? settings.metadata.attributeSelectionMode
+          : APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.attributeSelectionMode,
+      manuallySelectedAttributes: normalizedManualAttributes,
+    },
+  };
+}
+
+function parseManualAttributes(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .filter((part, index, all) => part.length > 0 && all.indexOf(part) === index);
+}
+
+function serializeManualAttributes(values: string[]): string {
+  return values.join(', ');
+}
+
+function validateDocumentationSettings(settings: DocumentationSettings): { normalized: DocumentationSettings; issues: string[] } {
+  const normalized = normalizeDocumentationSettings(settings);
+  const issues: string[] = [];
+
+  if (normalized.detailLevel === 'summary' && normalized.metadata.attributeSelectionMode !== 'all') {
+    normalized.metadata.attributeSelectionMode = 'all';
+    issues.push('Attribute selection mode is only supported in Detailed mode and was reset to All.');
+  }
+
+  if (normalized.detailLevel === 'summary' && normalized.metadata.excludeVirtualAttributes) {
+    normalized.metadata.excludeVirtualAttributes = false;
+    issues.push('Exclude virtual attributes is only supported in Detailed mode and was turned off.');
+  }
+
+  if (normalized.metadata.attributeSelectionMode === 'manually-selected'
+    && normalized.metadata.manuallySelectedAttributes.length === 0) {
+    issues.push('Manual attribute selection is enabled but no attribute names are defined.');
+  }
+
+  return { normalized, issues };
+}
 
 function toSafeMarkdownBaseName(rawName: string | undefined | null, fallback: string): string {
   const source = (rawName || fallback).trim();
@@ -118,7 +212,14 @@ function readSavedConfigurations(): SavedDocumentConfiguration[] {
 
     return parsed
       .filter((entry) => typeof entry === 'object' && entry !== null)
-      .map((entry) => entry as SavedDocumentConfiguration)
+      .map((entry) => {
+        const config = entry as SavedDocumentConfiguration;
+        return {
+          ...config,
+          schemaVersion: 2,
+          documentationSettings: normalizeDocumentationSettings(config.documentationSettings),
+        } satisfies SavedDocumentConfiguration;
+      })
       .filter((entry) => !!entry.id && !!entry.name);
   } catch {
     return [];
@@ -157,9 +258,10 @@ function buildConsolidatedResult(
   results: SolutionResult[],
   _erdMode: ErdMode,
   documentContext: DocumentContext,
+  documentationSettings: DocumentationSettings,
 ): SolutionResult {
   const solutions = results.map((r) => r.solution);
-  const markdown = generateConsolidatedMarkdown(solutions, { documentContext });
+  const markdown = generateConsolidatedMarkdown(solutions, { documentContext, documentationSettings });
   const aggregated: ParsedSolution = consolidateSolutions(solutions);
 
   return {
@@ -174,16 +276,17 @@ function rebuildResults(
   results: SolutionResult[],
   erdMode: ErdMode,
   documentContext: DocumentContext,
+  documentationSettings: DocumentationSettings,
 ): SolutionResult[] {
   const base = sortSolutionResults(results
     .filter((entry) => !entry.isConsolidated)
     .map((entry) => ({
       ...entry,
-      markdown: generateMarkdown(entry.solution, { erdMode, documentContext }),
+      markdown: generateMarkdown(entry.solution, { erdMode, documentContext, documentationSettings }),
     })));
 
   if (base.length > 1) {
-    return [buildConsolidatedResult(base, erdMode, documentContext), ...base];
+    return [buildConsolidatedResult(base, erdMode, documentContext, documentationSettings), ...base];
   }
 
   return base;
@@ -233,6 +336,10 @@ export default function App() {
   const [erdMode,       setErdMode]       = useState<ErdMode>('detailed-relationships');
   /** Document context for MD header details */
   const [documentContext, setDocumentContext] = useState<DocumentContext>(EMPTY_DOCUMENT_CONTEXT);
+  /** Scope/detail settings for generated markdown sections */
+  const [documentationSettings, setDocumentationSettings] = useState<DocumentationSettings>(
+    APP_DEFAULT_DOCUMENTATION_SETTINGS,
+  );
   /** Preset configurations loaded from JSON */
   const [configurations, setConfigurations] = useState<SavedDocumentConfiguration[]>([]);
   /** Selected configuration id from dropdown */
@@ -241,6 +348,8 @@ export default function App() {
   const [configLoadError, setConfigLoadError] = useState<string>('');
   /** New configuration name for save action */
   const [newConfigName, setNewConfigName] = useState<string>('');
+  /** Raw CSV text for manual attribute selection mode */
+  const [manualAttributeNamesInput, setManualAttributeNamesInput] = useState<string>('');
   /** True when switching to a heavy markdown document so we can show feedback */
   const [isViewerLoading, setIsViewerLoading] = useState<boolean>(false);
 
@@ -287,6 +396,9 @@ export default function App() {
       sprint: config.sprint ?? '',
       releaseDate: config.releaseDate ?? '',
     };
+    const { normalized: nextDocumentationSettings, issues } = validateDocumentationSettings(
+      normalizeDocumentationSettings(config.documentationSettings),
+    );
 
     setDocumentContext({
       client: nextDocumentContext.client,
@@ -296,7 +408,12 @@ export default function App() {
       sprint: nextDocumentContext.sprint,
       releaseDate: nextDocumentContext.releaseDate,
     });
-    setResults((prev) => rebuildResults(prev, erdMode, nextDocumentContext));
+    setDocumentationSettings(nextDocumentationSettings);
+    setManualAttributeNamesInput(serializeManualAttributes(nextDocumentationSettings.metadata.manuallySelectedAttributes));
+    setResults((prev) => rebuildResults(prev, erdMode, nextDocumentContext, nextDocumentationSettings));
+    if (issues.length > 0) {
+      setStatusMsg(issues.join(' '));
+    }
   }, [erdMode]);
 
   const handleConfigurationSelect = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
@@ -313,8 +430,8 @@ export default function App() {
     const nextDocumentContext = { ...documentContext, [field]: value };
     setSelectedConfigId('custom');
     setDocumentContext(nextDocumentContext);
-    setResults((prev) => rebuildResults(prev, erdMode, nextDocumentContext));
-  }, [documentContext, erdMode]);
+    setResults((prev) => rebuildResults(prev, erdMode, nextDocumentContext, documentationSettings));
+  }, [documentContext, documentationSettings, erdMode]);
 
   const handleSaveConfiguration = useCallback(() => {
     const name = newConfigName.trim();
@@ -327,12 +444,14 @@ export default function App() {
     const configToSave: SavedDocumentConfiguration = {
       id: configId,
       name,
+      schemaVersion: 2,
       client: documentContext.client,
       project: documentContext.project,
       contract: documentContext.contract,
       sow: documentContext.sow,
       sprint: documentContext.sprint,
       releaseDate: documentContext.releaseDate,
+      documentationSettings,
     };
 
     const savedConfigs = readSavedConfigurations();
@@ -347,7 +466,7 @@ export default function App() {
 
     setSelectedConfigId(configId);
     setStatusMsg(`Configuration "${name}" saved.`);
-  }, [newConfigName, documentContext]);
+  }, [newConfigName, documentContext, documentationSettings]);
 
   const handleDeleteConfiguration = useCallback((configId: string) => {
     if (configId === 'custom') return;
@@ -420,7 +539,7 @@ export default function App() {
         });
 
         setStatusMsg(`Generating documentation for ${file.name}…`);
-        const markdown = generateMarkdown(solution, { erdMode, documentContext });
+        const markdown = generateMarkdown(solution, { erdMode, documentContext, documentationSettings });
 
         newResults.push({ solution, markdown, fileName: file.name });
 
@@ -437,7 +556,7 @@ export default function App() {
       const existingBase = results.filter((r) => !r.isConsolidated);
       const mergedBase = sortSolutionResults([...existingBase, ...newResults]);
       const nextResults = mergedBase.length > 1
-        ? [buildConsolidatedResult(mergedBase, erdMode, documentContext), ...mergedBase]
+        ? [buildConsolidatedResult(mergedBase, erdMode, documentContext, documentationSettings), ...mergedBase]
         : mergedBase;
 
       setResults(nextResults);
@@ -456,16 +575,85 @@ export default function App() {
     setIsProcessing(false);
     // Clear progress indicators after a brief delay
     setTimeout(() => setProcessing([]), 1500);
-  }, [results, erdMode, documentContext, updateProcessingEntry]);
+  }, [results, erdMode, documentContext, documentationSettings, updateProcessingEntry]);
 
   const handleToggleErdMode = useCallback(() => {
     const nextMode: ErdMode = erdMode === 'detailed-relationships' ? 'compact' : 'detailed-relationships';
 
-    setResults((prev) => rebuildResults(prev, nextMode, documentContext));
+    setResults((prev) => rebuildResults(prev, nextMode, documentContext, documentationSettings));
 
     setErdMode(nextMode);
     setStatusMsg(`ERD mode switched to ${nextMode === 'compact' ? 'Compact' : 'Detailed-Relationships'}.`);
-  }, [erdMode, documentContext]);
+  }, [erdMode, documentContext, documentationSettings]);
+
+  const applyDocumentationSettings = useCallback((nextSettings: DocumentationSettings) => {
+    const { normalized, issues } = validateDocumentationSettings(nextSettings);
+    setSelectedConfigId('custom');
+    setDocumentationSettings(normalized);
+    setManualAttributeNamesInput(serializeManualAttributes(normalized.metadata.manuallySelectedAttributes));
+    setResults((prev) => rebuildResults(prev, erdMode, documentContext, normalized));
+    if (issues.length > 0) {
+      setStatusMsg(issues.join(' '));
+    }
+  }, [documentContext, erdMode]);
+
+  const handleDetailLevelChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+    const nextDetailLevel = event.target.value === 'summary' ? 'summary' : 'detailed';
+    const nextSettings: DocumentationSettings = {
+      ...documentationSettings,
+      detailLevel: nextDetailLevel,
+    };
+    applyDocumentationSettings(nextSettings);
+  }, [applyDocumentationSettings, documentationSettings]);
+
+  const handleScopeToggle = useCallback((key: keyof DocumentationSettings['scope']) => {
+    const nextSettings: DocumentationSettings = {
+      ...documentationSettings,
+      scope: {
+        ...documentationSettings.scope,
+        [key]: !documentationSettings.scope[key],
+      },
+    };
+
+    applyDocumentationSettings(nextSettings);
+  }, [applyDocumentationSettings, documentationSettings]);
+
+  const handleMetadataToggle = useCallback((key: keyof DocumentationSettings['metadata']) => {
+    const currentValue = documentationSettings.metadata[key];
+    if (typeof currentValue !== 'boolean') return;
+
+    const nextSettings: DocumentationSettings = {
+      ...documentationSettings,
+      metadata: {
+        ...documentationSettings.metadata,
+        [key]: !currentValue,
+      },
+    };
+    applyDocumentationSettings(nextSettings);
+  }, [applyDocumentationSettings, documentationSettings]);
+
+  const handleAttributeSelectionModeChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+    const nextSettings: DocumentationSettings = {
+      ...documentationSettings,
+      metadata: {
+        ...documentationSettings.metadata,
+        attributeSelectionMode: event.target.value as DocumentationSettings['metadata']['attributeSelectionMode'],
+      },
+    };
+    applyDocumentationSettings(nextSettings);
+  }, [applyDocumentationSettings, documentationSettings]);
+
+  const handleManualAttributesInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setManualAttributeNamesInput(event.target.value);
+    const nextSettings: DocumentationSettings = {
+      ...documentationSettings,
+      metadata: {
+        ...documentationSettings.metadata,
+        manuallySelectedAttributes: parseManualAttributes(event.target.value),
+      },
+    };
+    applyDocumentationSettings(nextSettings);
+  }, [applyDocumentationSettings, documentationSettings]);
 
   /**
    * Handles sidebar document selection with optional loading feedback for
@@ -566,7 +754,7 @@ export default function App() {
           <div className={styles.brand}>
             <img src={appIcon} className={styles.brandIcon} alt="" aria-hidden="true" />
             <h1 className={styles.brandName}>PP-MD</h1>
-            <span className={styles.brandTagline}>Power Platform Documentation Generator</span>
+            <span className={styles.brandTagline}>Power Platform Solution Documentation</span>
           </div>
 
           {/* Header actions */}
@@ -756,6 +944,153 @@ export default function App() {
                   </label>
                 </div>
 
+                <div className={styles.contextRow}>
+                  <h3 className={styles.contextHeading}>Document Options</h3>
+
+                  <label htmlFor="detail-level" className={styles.contextLabel}>Documentation Detail Level</label>
+                  <select
+                    id="detail-level"
+                    className={styles.contextSelect}
+                    value={documentationSettings.detailLevel}
+                    onChange={handleDetailLevelChange}
+                    aria-label="Select documentation detail level"
+                  >
+                    <option value="detailed">Detailed</option>
+                    <option value="summary">Summary</option>
+                  </select>
+
+                  <label htmlFor="attribute-selection-mode" className={styles.contextLabel}>Attribute Selection Mode</label>
+                  <select
+                    id="attribute-selection-mode"
+                    className={styles.contextSelect}
+                    value={documentationSettings.metadata.attributeSelectionMode}
+                    onChange={handleAttributeSelectionModeChange}
+                    aria-label="Select attribute selection mode"
+                  >
+                    <option value="all">All</option>
+                    <option value="custom-only">Custom Only</option>
+                    <option value="attributes-on-form">Attributes On Form</option>
+                    <option value="attributes-not-on-form">Attributes Not On Form</option>
+                    <option value="option-set-focused">Option-Set Focused</option>
+                    <option value="manually-selected">Manually Selected</option>
+                    <option value="unmanaged-only">Unmanaged Only</option>
+                  </select>
+                </div>
+
+                <div className={styles.scopeGrid}>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.scope.flows}
+                      onChange={() => handleScopeToggle('flows')}
+                    />
+                    <span>Include Flows & Automation</span>
+                  </label>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.scope.apps}
+                      onChange={() => handleScopeToggle('apps')}
+                    />
+                    <span>Include Apps</span>
+                  </label>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.scope.security}
+                      onChange={() => handleScopeToggle('security')}
+                    />
+                    <span>Include Security</span>
+                  </label>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.scope.integration}
+                      onChange={() => handleScopeToggle('integration')}
+                    />
+                    <span>Include Integration</span>
+                  </label>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.scope.plugins}
+                      onChange={() => handleScopeToggle('plugins')}
+                    />
+                    <span>Include Plugins</span>
+                  </label>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.scope.reports}
+                      onChange={() => handleScopeToggle('reports')}
+                    />
+                    <span>Include Reports & Dashboards</span>
+                  </label>
+                </div>
+
+                <label className={styles.contextField}>
+                  <span>Manual Attributes (comma-separated schema names)</span>
+                  <input
+                    type="text"
+                    value={manualAttributeNamesInput}
+                    onChange={handleManualAttributesInputChange}
+                    disabled={documentationSettings.metadata.attributeSelectionMode !== 'manually-selected'}
+                    placeholder="new_name, new_status"
+                    aria-label="Manual attribute schema names"
+                  />
+                </label>
+
+                <div className={styles.scopeGrid}>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.metadata.includeAuditInfo}
+                      onChange={() => handleMetadataToggle('includeAuditInfo')}
+                    />
+                    <span>Include Audit Info</span>
+                  </label>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.metadata.includeFieldSecurityFlags}
+                      onChange={() => handleMetadataToggle('includeFieldSecurityFlags')}
+                    />
+                    <span>Include Field Security Flags</span>
+                  </label>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.metadata.includeRequiredLevelInfo}
+                      onChange={() => handleMetadataToggle('includeRequiredLevelInfo')}
+                    />
+                    <span>Include Required-Level Info</span>
+                  </label>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.metadata.includeValidForAdvancedFindInfo}
+                      onChange={() => handleMetadataToggle('includeValidForAdvancedFindInfo')}
+                    />
+                    <span>Include Valid-for-Advanced-Find</span>
+                  </label>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.metadata.excludeVirtualAttributes}
+                      onChange={() => handleMetadataToggle('excludeVirtualAttributes')}
+                    />
+                    <span>Exclude Virtual Attributes</span>
+                  </label>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.metadata.includeMetadataDiagnosticInfo}
+                      onChange={() => handleMetadataToggle('includeMetadataDiagnosticInfo')}
+                    />
+                    <span>Include Metadata Source Diagnostics</span>
+                  </label>
+                </div>
+
               </section>
 
               <div className={styles.dropZoneWrapper}>
@@ -885,7 +1220,7 @@ export default function App() {
       {/* ── Footer ────────────────────────────────────────────────────── */}
       <footer className={styles.footer} role="contentinfo">
         <p>
-          PP-MD: Power Platform Documentation Generator. Created by Mike Hartley - Hart of the Midlands.
+          PP-MD: Power Platform Solution Documentation. Created by Mike Hartley - Hart of the Midlands.
           All processing happens locally on your PC; your solution data never leaves your machine.
         </p>
       </footer>

@@ -51,10 +51,13 @@ export enum ComponentType {
   // Reporting
   Report = 'Report',
   Dashboard = 'Dashboard',
+  Dataflow = 'Dataflow',
 
   // Code
   PluginAssembly = 'PluginAssembly',
   PluginStep = 'PluginStep',
+  CustomAPI = 'CustomAPI',
+  MobileOfflineProfile = 'MobileOfflineProfile',
 
   // Other
   SdkMessageProcessingStep = 'SdkMessageProcessingStep',
@@ -163,6 +166,8 @@ export interface OptionSetOption {
   description?: string;
   /** Colour hint (hex, used in some customisations) */
   color?: string;
+  /** Whether this option is the configured default */
+  isDefault?: boolean;
 }
 
 /**
@@ -183,14 +188,26 @@ export interface EntityAttribute extends NamedItem {
   type: AttributeType;
   /** Whether the column is required */
   required: boolean;
+  /** Original required-level label from metadata (e.g. None, Recommended, ApplicationRequired) */
+  requiredLevel?: string;
   /** Whether the column is auditable */
   auditing?: boolean;
   /** Max length for text fields */
   maxLength?: number;
   /** Precision for numeric fields */
   precision?: number;
+  /** Minimum allowed value for numeric/date-like fields */
+  minValue?: number | string;
+  /** Maximum allowed value for numeric/date-like fields */
+  maxValue?: number | string;
+  /** Format hint (for example Text, DateOnly, Duration, Email, Url) */
+  format?: string;
+  /** Default value where provided by metadata */
+  defaultValue?: string;
   /** For Lookup columns – the target entity logical name */
   lookupTarget?: string;
+  /** For polymorphic lookups – all possible target entities */
+  lookupTargets?: string[];
   /** For OptionSet columns – inline options when not referencing global set */
   options?: OptionSetOption[];
   /** For OptionSet columns – name of the global OptionSet if referenced */
@@ -201,6 +218,19 @@ export interface EntityAttribute extends NamedItem {
   isPrimaryName?: boolean;
   /** Whether auditing is enabled for this column */
   isAuditEnabled?: boolean;
+  /** Whether the attribute is field-security enabled */
+  isSecured?: boolean;
+  /** Whether this attribute appears in Advanced Find */
+  isValidForAdvancedFind?: boolean;
+  /** Optional parser diagnostics showing which metadata keys produced key flags */
+  metadataSources?: {
+    /** Source key/path used to compute isCustom */
+    isCustom?: string;
+    /** Source key/path used to compute isValidForAdvancedFind */
+    isValidForAdvancedFind?: string;
+  };
+  /** Whether this attribute is managed (solution layer metadata) */
+  isManaged?: boolean;
 }
 
 /**
@@ -271,6 +301,12 @@ export interface FormField {
   label?: string;
   /** Whether the field is required on the form */
   required?: boolean;
+  /** Form region where the field is placed */
+  location?: 'body' | 'header' | 'footer';
+  /** Tab name where the field appears (body region) */
+  tabName?: string;
+  /** Section name where the field appears (body region) */
+  sectionName?: string;
 }
 
 /**
@@ -377,12 +413,193 @@ export interface AppDefinition extends NamedItem {
   entities?: string[];
   /** Sitemap or navigation structure (model-driven) */
   sitemapAreas?: string[];
+  /** Detailed sitemap structure (model-driven) */
+  siteMap?: AppSiteMapArea[];
+  /** Site map settings (model-driven) */
+  siteMapSettings?: AppSiteMapSettings;
+  /** Canvas app insights (canvas/custom-page) */
+  canvasInsights?: CanvasAppInsights;
   /** Connectors used (canvas apps) */
   connectors?: string[];
   /** Whether the app is enabled */
   isEnabled?: boolean;
   /** Version of the app (from manifest) */
   version?: string;
+}
+
+/**
+ * Copilot Studio Agent definition included in the solution.
+ */
+export interface AgentDefinition extends NamedItem {
+  /** Source file path in the solution zip */
+  sourcePath: string;
+  /** Optional category/type label */
+  agentType?: string;
+  /** Optional locale/language indicator */
+  language?: string;
+  /** Optional trigger/channel metadata */
+  trigger?: string;
+  /** Referenced connectors, where discoverable */
+  connectors?: string[];
+}
+
+/**
+ * AI model artifact definition included in the solution.
+ */
+export interface AIModelDefinition extends NamedItem {
+  /** Source file path in the solution zip */
+  sourcePath: string;
+  /** Model family/type */
+  modelType?: string;
+  /** Provider/vendor name */
+  provider?: string;
+  /** Version string */
+  version?: string;
+  /** Runtime endpoint or deployment reference */
+  endpoint?: string;
+}
+
+/**
+ * Desktop flow definition included in the solution.
+ */
+export interface DesktopFlowDefinition extends NamedItem {
+  /** Source file path in the solution zip */
+  sourcePath: string;
+  /** Display folder/group if available */
+  folder?: string;
+  /** Whether the flow is enabled/active if known */
+  isEnabled?: boolean;
+  /** Detected actions/steps count */
+  stepCount?: number;
+  /** Referenced connectors/systems where discoverable */
+  connectors?: string[];
+}
+
+/**
+ * Dataflow artifact definition included in the solution.
+ */
+export interface DataflowDefinition extends NamedItem {
+  /** Source file path in the solution zip */
+  sourcePath: string;
+  /** Connector/data source hints where discoverable */
+  connectors?: string[];
+  /** Optional refresh mode/schedule hint */
+  refreshMode?: string;
+}
+
+/**
+ * Custom API definition included in the solution.
+ */
+export interface CustomAPIDefinition extends NamedItem {
+  /** Source file path in the solution zip */
+  sourcePath: string;
+  /** Bound table logical name when API is bound */
+  boundEntityLogicalName?: string;
+  /** Whether this is a function-style API */
+  isFunction?: boolean;
+}
+
+/**
+ * Mobile/offline profile definition included in the solution.
+ */
+export interface OfflineProfileDefinition extends NamedItem {
+  /** Source file path in the solution zip */
+  sourcePath: string;
+  /** Profile type/category if present */
+  profileType?: string;
+  /** Tables included in the profile, where discoverable */
+  entities?: string[];
+}
+
+/**
+ * A model-driven app sitemap area.
+ */
+export interface AppSiteMapArea {
+  /** Area identifier */
+  id?: string;
+  /** Area title/label */
+  title?: string;
+  /** Area groups */
+  groups: AppSiteMapGroup[];
+}
+
+/**
+ * A model-driven app sitemap group.
+ */
+export interface AppSiteMapGroup {
+  /** Group identifier */
+  id?: string;
+  /** Group title/label */
+  title?: string;
+  /** Group subareas */
+  subAreas: AppSiteMapSubArea[];
+}
+
+/**
+ * A model-driven app sitemap subarea.
+ */
+export interface AppSiteMapSubArea {
+  /** Subarea identifier */
+  id?: string;
+  /** Subarea title/label */
+  title?: string;
+  /** Referenced Dataverse table logical name (if any) */
+  entity?: string;
+  /** Subarea URL (for web/resource links) */
+  url?: string;
+}
+
+/**
+ * Site map settings exported with a model-driven app.
+ */
+export interface AppSiteMapSettings {
+  showHome?: boolean;
+  showPinned?: boolean;
+  showRecents?: boolean;
+  enableCollapsibleGroups?: boolean;
+}
+
+/**
+ * High-level canvas app insights extracted from app metadata.
+ */
+export interface CanvasAppInsights {
+  screenCount?: number;
+  controlCount?: number;
+  dataSourceCount?: number;
+  variableCount?: number;
+  resourceCount?: number;
+  screenNames?: string[];
+  dataSources?: string[];
+  variables?: string[];
+  resources?: string[];
+  screens?: CanvasScreenInsight[];
+  navigation?: CanvasNavigationLink[];
+}
+
+/**
+ * Per-screen canvas control summary.
+ */
+export interface CanvasScreenInsight {
+  name: string;
+  controls: string[];
+}
+
+/**
+ * Screen navigation link discovered from formulas/expressions.
+ */
+export interface CanvasNavigationLink {
+  from: string;
+  to: string;
+}
+
+/**
+ * Summary row for a solution component type in solution.xml.
+ */
+export interface SolutionComponentInventoryItem {
+  /** Resolved component type label */
+  componentType: string;
+  /** Count of components of this type */
+  count: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -565,6 +782,26 @@ export interface PluginAssemblyDefinition extends NamedItem {
 }
 
 // ---------------------------------------------------------------------------
+// Solution Dependencies
+// ---------------------------------------------------------------------------
+
+/**
+ * A solution dependency (another solution or extension required).
+ */
+export interface SolutionDependency {
+  /** Unique name of the dependent solution */
+  solutionName: string;
+  /** Display name of the dependent solution */
+  displayName?: string;
+  /** Version of the dependent solution, if specified */
+  version?: string;
+  /** Whether this dependency is internal to the platform */
+  isInternal?: boolean;
+  /** The dependent component information */
+  dependentComponentInfo?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Top-level parsed solution
 // ---------------------------------------------------------------------------
 
@@ -582,10 +819,18 @@ export interface SolutionMetadata {
   publisherName: string;
   /** Publisher unique name */
   publisherUniqueName?: string;
+  /** Publisher prefix (customization prefix for this publisher) */
+  publisherPrefix?: string;
+  /** Solution prefix (customization prefix for this solution) */
+  solutionPrefix?: string;
   /** Description */
   description?: string;
   /** Managed/Unmanaged flag */
   isManaged: boolean;
+  /** List of solution dependencies */
+  dependencies: SolutionDependency[];
+  /** Component inventory from solution.xml root components */
+  componentInventory: SolutionComponentInventoryItem[];
 }
 
 /**
@@ -607,6 +852,18 @@ export interface ParsedSolution {
   processes: ProcessDefinition[];
   /** Power Apps */
   apps: AppDefinition[];
+  /** Copilot Studio Agents */
+  agents: AgentDefinition[];
+  /** AI Models */
+  aiModels: AIModelDefinition[];
+  /** Desktop Flows */
+  desktopFlows: DesktopFlowDefinition[];
+  /** Dataflows */
+  dataflows: DataflowDefinition[];
+  /** Custom APIs */
+  customApis: CustomAPIDefinition[];
+  /** Offline Profiles */
+  offlineProfiles: OfflineProfileDefinition[];
   /** Web Resources */
   webResources: WebResourceDefinition[];
   /** Security roles */

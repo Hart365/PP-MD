@@ -30,6 +30,12 @@ import type {
   ProcessDefinition,
   ProcessStep,
   AppDefinition,
+  AgentDefinition,
+  AIModelDefinition,
+  DesktopFlowDefinition,
+  DataflowDefinition,
+  CustomAPIDefinition,
+  OfflineProfileDefinition,
   WebResourceDefinition,
   SecurityRoleDefinition,
   FieldSecurityProfileDefinition,
@@ -42,6 +48,13 @@ import type {
   PluginStepDefinition,
   RolePrivilege,
   FormField,
+  SolutionDependency,
+  AppSiteMapArea,
+  AppSiteMapGroup,
+  AppSiteMapSubArea,
+  AppSiteMapSettings,
+  CanvasAppInsights,
+  SolutionComponentInventoryItem,
 } from '../types/solution';
 
 import {
@@ -211,6 +224,149 @@ function firstObject(value: unknown): Record<string, unknown> | undefined {
   return undefined;
 }
 
+function asObjectArray(value: unknown): Record<string, unknown>[] {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null);
+  }
+  if (typeof value === 'object') return [value as Record<string, unknown>];
+  return [];
+}
+
+function xmlStrAny(obj: Record<string, unknown>, keys: string[], fallback = ''): string {
+  for (const key of keys) {
+    const value = xmlStr(obj, key);
+    if (value) return value;
+  }
+  return fallback;
+}
+
+function environmentVariableDisplayName(node: Record<string, unknown>, schemaName?: string): string {
+  return (
+    xmlStrAny(node, ['displayname', 'DisplayName', '@_displayname', '@_DisplayName']) ||
+    getLocalizedLabel(node, schemaName || xmlStrAny(node, ['Name', '@_Name'])) ||
+    schemaName ||
+    ''
+  );
+}
+
+function parseSolutionDependencies(root: Record<string, unknown>, solNode: Record<string, unknown>): SolutionDependency[] {
+  const dependencies: SolutionDependency[] = [];
+
+  const addDependency = (dep: SolutionDependency) => {
+    const name = dep.solutionName?.trim();
+    if (!name) return;
+    const key = `${name.toLowerCase()}|${(dep.version || '').toLowerCase()}`;
+    if (dependencies.some((existing) => `${existing.solutionName.toLowerCase()}|${(existing.version || '').toLowerCase()}` === key)) {
+      return;
+    }
+    dependencies.push({
+      ...dep,
+      solutionName: name,
+      displayName: dep.displayName || name,
+    });
+  };
+
+  const dependencyContainers = [
+    solNode['DependencyNodes'],
+    solNode['dependencynodes'],
+    solNode['Dependencies'],
+    solNode['dependencies'],
+    root['DependencyNodes'],
+    root['dependencynodes'],
+    root['Dependencies'],
+    root['dependencies'],
+  ];
+
+  dependencyContainers.forEach((container) => {
+    asObjectArray(container).forEach((depRoot) => {
+      const nodes = [
+        ...asObjectArray(depRoot['DependencyNode']),
+        ...asObjectArray(depRoot['dependencynode']),
+        ...asObjectArray(depRoot['Dependency']),
+        ...asObjectArray(depRoot['dependency']),
+      ];
+      nodes.forEach((node) => {
+        const solutionName = xmlStrAny(node, [
+          '@_solution', '@_Solution',
+          '@_solutionname', '@_solutionName',
+          'solution', 'Solution',
+          'solutionname', 'solutionName',
+          '@_schemaname', '@_schemaName',
+          'schemaname', 'schemaName',
+          '@_name', '@_Name', 'name', 'Name',
+        ]);
+        if (!solutionName) return;
+        addDependency({
+          solutionName,
+          displayName: xmlStrAny(node, ['@_displayname', '@_displayName', 'displayname', 'displayName', '@_description', 'description']) || solutionName,
+          version: xmlStrAny(node, ['@_version', '@_Version', 'version', 'Version']) || undefined,
+          isInternal: parseBooleanLike(xmlStrAny(node, ['@_internal', '@_isinternal', 'internal', 'isinternal'])) || false,
+          dependentComponentInfo: xmlStrAny(node, ['@_dependentcomponentinfo', 'dependentcomponentinfo', '@_dependentComponentInfo', 'dependentComponentInfo']) || undefined,
+        });
+      });
+    });
+  });
+
+  const missingDependencyRoots = [
+    root['MissingDependencies'],
+    root['missingdependencies'],
+    solNode['MissingDependencies'],
+    solNode['missingdependencies'],
+  ];
+
+  missingDependencyRoots.forEach((missingRoot) => {
+    asObjectArray(missingRoot).forEach((container) => {
+      const missingItems = [
+        ...asObjectArray(container['MissingDependency']),
+        ...asObjectArray(container['missingdependency']),
+      ];
+
+      missingItems.forEach((missing) => {
+        const requiredNode =
+          firstObject(missing['Required']) ||
+          firstObject(missing['required']) ||
+          missing;
+        const dependentNode =
+          firstObject(missing['Dependent']) ||
+          firstObject(missing['dependent']);
+
+        const solutionName = xmlStrAny(requiredNode, [
+          '@_solution', '@_Solution',
+          '@_solutionname', '@_solutionName',
+          'solution', 'Solution',
+          'solutionname', 'solutionName',
+          '@_requiredsolution', '@_requiredSolution',
+          'requiredsolution', 'requiredSolution',
+          '@_schemaname', '@_schemaName',
+          'schemaname', 'schemaName',
+          '@_displayname', '@_displayName',
+          'displayname', 'displayName',
+        ]);
+        if (!solutionName) return;
+
+        const dependentInfo = dependentNode
+          ? [
+            xmlStrAny(dependentNode, ['@_type', 'type']),
+            xmlStrAny(dependentNode, ['@_displayname', '@_displayName', 'displayname', 'displayName']),
+            xmlStrAny(dependentNode, ['@_schemaname', '@_schemaName', 'schemaname', 'schemaName']),
+          ].filter((value) => !!value).join(' | ') || undefined
+          : undefined;
+
+        addDependency({
+          solutionName,
+          displayName: xmlStrAny(requiredNode, ['@_displayname', '@_displayName', 'displayname', 'displayName', '@_description', 'description']) || solutionName,
+          version: xmlStrAny(requiredNode, ['@_version', '@_Version', 'version', 'Version']) || undefined,
+          isInternal: parseBooleanLike(xmlStrAny(requiredNode, ['@_internal', '@_isinternal', 'internal', 'isinternal'])) || false,
+          dependentComponentInfo: dependentInfo,
+        });
+      });
+    });
+  });
+
+  return dependencies;
+}
+
 function getLocalizedLabel(node: Record<string, unknown>, fallback = ''): string {
   const directDisplayName =
     xmlStr(node, 'DisplayName') ||
@@ -271,6 +427,85 @@ function parseBooleanLike(value: string | undefined): boolean | undefined {
   if (['1', 'true', 'yes', 'y', 'enabled', 'allow', 'allowed'].includes(normalized)) return true;
   if (['0', 'false', 'no', 'n', 'disabled', 'disallow', 'denied'].includes(normalized)) return false;
   return undefined;
+}
+
+function normalizeMetadataKey(key: string): string {
+  return key
+    .replace(/^@_/, '')
+    .replace(/[^a-z0-9]/gi, '')
+    .toLowerCase();
+}
+
+interface ParsedBooleanMetadata {
+  value: boolean;
+  sourceKey: string;
+}
+
+function parseBooleanMetadataWithSource(value: unknown, candidateKeys: string[]): ParsedBooleanMetadata | undefined {
+  const normalizedCandidates = new Set(candidateKeys.map((key) => normalizeMetadataKey(key)));
+  const queue: Array<{ value: unknown; path: string }> = [{ value, path: '' }];
+
+  const parseFromNode = (nodeValue: unknown, sourceKey: string): ParsedBooleanMetadata | undefined => {
+    if (nodeValue === undefined || nodeValue === null) return undefined;
+    if (typeof nodeValue === 'string' || typeof nodeValue === 'number' || typeof nodeValue === 'boolean') {
+      const parsed = parseBooleanLike(String(nodeValue));
+      return parsed === undefined ? undefined : { value: parsed, sourceKey };
+    }
+
+    const node = firstObject(nodeValue);
+    if (!node) return undefined;
+
+    const directFields = [
+      '@_Value', '@_value',
+      'Value', 'value',
+      '#text',
+      '@_CanBeChanged', 'CanBeChanged', 'canbechanged',
+    ];
+
+    for (const field of directFields) {
+      const fieldValue = xmlStr(node, field);
+      const parsed = parseBooleanLike(fieldValue);
+      if (parsed !== undefined) {
+        return { value: parsed, sourceKey: `${sourceKey}.${field}` };
+      }
+    }
+
+    const nested = findFirstStringByKey(node, new Set(['value', '#text']));
+    const parsedNested = parseBooleanLike(nested);
+    return parsedNested === undefined ? undefined : { value: parsedNested, sourceKey: `${sourceKey}.nested` };
+  };
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) continue;
+
+    if (!current.value || typeof current.value !== 'object') continue;
+
+    if (Array.isArray(current.value)) {
+      current.value.forEach((item, index) => queue.push({ value: item, path: `${current.path}[${index}]` }));
+      continue;
+    }
+
+    const record = current.value as Record<string, unknown>;
+    for (const [key, raw] of Object.entries(record)) {
+      const path = current.path ? `${current.path}.${key}` : key;
+
+      if (normalizedCandidates.has(normalizeMetadataKey(key))) {
+        const parsed = parseFromNode(raw, path);
+        if (parsed) return parsed;
+      }
+
+      if (raw && typeof raw === 'object') {
+        queue.push({ value: raw, path });
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function parseBooleanMetadata(value: unknown, candidateKeys: string[]): boolean | undefined {
+  return parseBooleanMetadataWithSource(value, candidateKeys)?.value;
 }
 
 function parseProcessActivationStatus(node: Record<string, unknown>): boolean | undefined {
@@ -390,6 +625,123 @@ function connectorDisplayFromId(connectorId: string): string {
   return known[normalizedNoShared] ?? known[normalized] ?? humanizeIdentifier(segment);
 }
 
+function uniqueStrings(values: Array<string | undefined | null>): string[] {
+  return Array.from(new Set(values.filter((value): value is string => !!value && value.trim().length > 0)));
+}
+
+function isModuleTextFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return lower.endsWith('.json') || lower.endsWith('.xml') || lower.endsWith('.yml') || lower.endsWith('.yaml');
+}
+
+function readStructuredContent(text: string, path: string): Record<string, unknown> | undefined {
+  const lowerPath = path.toLowerCase();
+  if (!text.trim()) return undefined;
+
+  if (lowerPath.endsWith('.json')) {
+    try {
+      return JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+  }
+
+  if (lowerPath.endsWith('.xml')) {
+    try {
+      return xmlParser.parse(text) as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
+}
+
+function findFirstStringByKey(value: unknown, candidateKeys: Set<string>): string | undefined {
+  const queue: unknown[] = [value];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object') continue;
+
+    if (Array.isArray(current)) {
+      current.forEach((item) => queue.push(item));
+      continue;
+    }
+
+    const record = current as Record<string, unknown>;
+    for (const [key, raw] of Object.entries(record)) {
+      if (candidateKeys.has(key.toLowerCase()) && (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean')) {
+        const valueStr = String(raw).trim();
+        if (valueStr) return valueStr;
+      }
+      if (raw && typeof raw === 'object') queue.push(raw);
+    }
+  }
+
+  return undefined;
+}
+
+function collectStringsByKey(value: unknown, candidateKeys: Set<string>, out: Set<string>): void {
+  const queue: unknown[] = [value];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object') continue;
+
+    if (Array.isArray(current)) {
+      current.forEach((item) => queue.push(item));
+      continue;
+    }
+
+    const record = current as Record<string, unknown>;
+    for (const [key, raw] of Object.entries(record)) {
+      if (candidateKeys.has(key.toLowerCase())) {
+        if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') {
+          const valueStr = String(raw).trim();
+          if (valueStr) out.add(valueStr);
+        } else if (Array.isArray(raw)) {
+          raw.forEach((item) => {
+            if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') {
+              const valueStr = String(item).trim();
+              if (valueStr) out.add(valueStr);
+            } else {
+              queue.push(item);
+            }
+          });
+        } else if (raw && typeof raw === 'object') {
+          queue.push(raw);
+        }
+      } else if (raw && typeof raw === 'object') {
+        queue.push(raw);
+      }
+    }
+  }
+}
+
+function findArraySizeByKey(value: unknown, candidateKeys: Set<string>): number | undefined {
+  const queue: unknown[] = [value];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object') continue;
+
+    if (Array.isArray(current)) {
+      current.forEach((item) => queue.push(item));
+      continue;
+    }
+
+    const record = current as Record<string, unknown>;
+    for (const [key, raw] of Object.entries(record)) {
+      if (candidateKeys.has(key.toLowerCase()) && Array.isArray(raw)) {
+        return raw.length;
+      }
+      if (raw && typeof raw === 'object') queue.push(raw);
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Map from solution XML ComponentType number to our {@link ComponentType} enum.
  * Reference: https://learn.microsoft.com/power-apps/developer/data-platform/reference/entities/solutioncomponent
@@ -400,9 +752,10 @@ export const COMPONENT_TYPE_MAP: Record<number, string> = {
   2: 'Attribute',
   3: 'Relationship',
   4: 'Attribute',          // AttributeMap
+  20: 'Role',
   7: 'Role',
   8: 'RolePrivilege',
-  9: 'FieldSecurityProfile',
+  9: 'OptionSet',
   10: 'FieldPermission',
   14: 'Workflow',
   24: 'Form',              // SystemForm
@@ -412,13 +765,14 @@ export const COMPONENT_TYPE_MAP: Record<number, string> = {
   32: 'ReportEntity',
   33: 'ReportCategory',
   35: 'Report',
+  36: 'EmailTemplate',
   44: 'Dashboard',
-  60: 'AppModule',
-  61: 'SiteMap',
+  60: 'Dashboard',
+  61: 'WebResource',
   62: 'Process',
   70: 'FieldSecurityProfile',
   71: 'ConnectionReference',
-  80: 'ConnectorDefinition',
+  80: 'AppModule',
   90: 'PluginAssembly',
   91: 'PluginType',
   92: 'SdkMessageProcessingStep',
@@ -443,43 +797,133 @@ export const COMPONENT_TYPE_MAP: Record<number, string> = {
 function parseSolutionMetadata(xml: string): SolutionMetadata {
   const doc = xmlParser.parse(xml) as Record<string, unknown>;
   const root = (doc['ImportExportXml'] ?? doc) as Record<string, unknown>;
-  const solNode = (root['SolutionManifest'] ?? root) as Record<string, unknown>;
+  const solNode = (root['SolutionManifest'] ?? root['solutionmanifest'] ?? root) as Record<string, unknown>;
 
-  const uniqueName = xmlStr(solNode, 'UniqueName') || xmlStr(solNode as Record<string, unknown>, '@_UniqueName');
-  const version    = xmlStr(solNode, 'Version')    || xmlStr(solNode, '@_Version');
-  const isManaged  = xmlStr(solNode, 'Managed') === 'true' || xmlStr(solNode, 'Managed') === '1';
+  const uniqueName = xmlStrAny(solNode, ['UniqueName', 'uniquename', '@_UniqueName', '@_uniquename']);
+  const version    = xmlStrAny(solNode, ['Version', 'version', '@_Version', '@_version']);
+  const isManaged  = ['true', '1', 'yes'].includes(xmlStrAny(solNode, ['Managed', 'managed', '@_Managed', '@_managed']).toLowerCase());
 
   // Publisher node
-  const publisher = (solNode['Publisher'] ?? {}) as Record<string, unknown>;
-  const publisherNames = (publisher['LocalizedNames'] ?? {}) as Record<string, unknown>;
-  const pNameNode  = publisherNames['LocalizedName'] as Record<string, unknown> | undefined;
-  const publisherName = pNameNode
-    ? xmlStr(pNameNode, '@_description') || xmlStr(pNameNode, 'description')
-    : xmlStr(publisher, 'UniqueName');
+  const publisher = (solNode['Publisher'] ?? solNode['publisher'] ?? {}) as Record<string, unknown>;
+  const publisherName = getLocalizedLabel(
+    publisher,
+    xmlStrAny(publisher, ['FriendlyName', 'friendlyname', 'DisplayName', 'displayname', 'UniqueName', 'uniquename']) || 'Unknown Publisher',
+  );
+
+  // Publisher prefix
+  const publisherPrefix = xmlStrAny(publisher, ['Prefix', 'prefix', 'CustomizationPrefix', 'customizationprefix', '@_Prefix', '@_prefix']);
 
   // Solution display name
-  const localizedNames = (solNode['LocalizedNames'] ?? {}) as Record<string, unknown>;
-  const lnNode = localizedNames['LocalizedName'] as Record<string, unknown> | undefined;
-  const displayName = lnNode
-    ? xmlStr(lnNode, '@_description') || xmlStr(lnNode, 'description')
-    : uniqueName;
+  const displayName = getLocalizedLabel(solNode, uniqueName);
 
   // Description
-  const descriptions = (solNode['Descriptions'] ?? {}) as Record<string, unknown>;
-  const descNode = descriptions['Description'] as Record<string, unknown> | undefined;
-  const description = descNode
-    ? xmlStr(descNode, '@_description') || xmlStr(descNode, 'description')
-    : '';
+  const descriptions = firstObject(solNode['Descriptions'] ?? solNode['descriptions']);
+  const description =
+    xmlStrAny(solNode, ['Description', 'description']) ||
+    (descriptions
+      ? xmlStrAny(firstObject(descriptions['Description'] ?? descriptions['description']) ?? descriptions, ['@_description', 'description', '#text'])
+      : '');
+
+  // Solution prefix / customization prefix
+  const solutionPrefix = xmlStrAny(solNode, ['Prefix', 'prefix', 'CustomizationPrefix', 'customizationprefix', '@_Prefix', '@_prefix']);
+
+  // Parse dependencies from all known solution.xml structures
+  const dependencies = parseSolutionDependencies(root, solNode);
+
+  const componentInventoryMap = new Map<string, number>();
+  const rootComponentsContainer = firstObject(solNode['RootComponents'] ?? solNode['rootcomponents']);
+  const rootComponents = rootComponentsContainer
+    ? [
+      ...asObjectArray(rootComponentsContainer['RootComponent']),
+      ...asObjectArray(rootComponentsContainer['rootcomponent']),
+    ]
+    : [];
+
+  rootComponents.forEach((component) => {
+    const componentTypeRaw = xmlStrAny(component, ['@_type', '@_Type', 'type', 'Type', 'ComponentType', 'componenttype']);
+    const componentTypeNumber = Number(componentTypeRaw);
+    const resolvedType = !Number.isNaN(componentTypeNumber)
+      ? (COMPONENT_TYPE_MAP[componentTypeNumber] ?? `Unknown (${componentTypeNumber})`)
+      : (componentTypeRaw || 'Unknown');
+    componentInventoryMap.set(resolvedType, (componentInventoryMap.get(resolvedType) ?? 0) + 1);
+  });
+
+  const componentInventory: SolutionComponentInventoryItem[] = Array.from(componentInventoryMap.entries())
+    .map(([componentType, count]) => ({ componentType, count }))
+    .sort((a, b) => a.componentType.localeCompare(b.componentType));
 
   return {
     uniqueName,
     displayName,
     version,
     publisherName,
-    publisherUniqueName: xmlStr(publisher, 'UniqueName'),
+    publisherUniqueName: xmlStrAny(publisher, ['UniqueName', 'uniquename', '@_UniqueName', '@_uniquename']) || undefined,
+    publisherPrefix: publisherPrefix || undefined,
+    solutionPrefix: solutionPrefix || undefined,
     description,
     isManaged,
+    dependencies,
+    componentInventory,
   };
+}
+
+function upsertInventoryMinimum(inventoryMap: Map<string, number>, componentType: string, minimumCount: number): void {
+  if (!componentType || minimumCount <= 0) return;
+  const existing = inventoryMap.get(componentType) ?? 0;
+  if (minimumCount > existing) {
+    inventoryMap.set(componentType, minimumCount);
+  }
+}
+
+function enrichComponentInventory(
+  metadata: SolutionMetadata,
+  data: {
+    optionSets: OptionSetDefinition[];
+    forms: FormDefinition[];
+    views: ViewDefinition[];
+    processes: ProcessDefinition[];
+    apps: AppDefinition[];
+    dataflows: DataflowDefinition[];
+    customApis: CustomAPIDefinition[];
+    offlineProfiles: OfflineProfileDefinition[];
+    webResources: WebResourceDefinition[];
+    securityRoles: SecurityRoleDefinition[];
+    fieldSecurityProfiles: FieldSecurityProfileDefinition[];
+    connectionReferences: ConnectionReferenceDefinition[];
+    environmentVariables: EnvironmentVariableDefinition[];
+    emailTemplates: EmailTemplateDefinition[];
+    reports: ReportDefinition[];
+    dashboards: DashboardDefinition[];
+    pluginAssemblies: PluginAssemblyDefinition[];
+  },
+): void {
+  const map = new Map(metadata.componentInventory.map((item) => [item.componentType, item.count]));
+
+  upsertInventoryMinimum(map, 'OptionSet', data.optionSets.length);
+  upsertInventoryMinimum(map, 'Form', data.forms.length);
+  upsertInventoryMinimum(map, 'SavedQuery', data.views.length);
+  upsertInventoryMinimum(map, 'Workflow', data.processes.length);
+  upsertInventoryMinimum(map, 'Dataflow', data.dataflows.length);
+  upsertInventoryMinimum(map, 'CustomAPI', data.customApis.length);
+  upsertInventoryMinimum(map, 'MobileOfflineProfile', data.offlineProfiles.length);
+  upsertInventoryMinimum(map, 'WebResource', data.webResources.length);
+  upsertInventoryMinimum(map, 'Role', data.securityRoles.length);
+  upsertInventoryMinimum(map, 'FieldSecurityProfile', data.fieldSecurityProfiles.length);
+  upsertInventoryMinimum(map, 'ConnectionReference', data.connectionReferences.length);
+  upsertInventoryMinimum(map, 'EnvironmentVariableDefinition', data.environmentVariables.length);
+  upsertInventoryMinimum(map, 'EmailTemplate', data.emailTemplates.length);
+  upsertInventoryMinimum(map, 'Report', data.reports.length);
+  upsertInventoryMinimum(map, 'Dashboard', data.dashboards.length);
+  upsertInventoryMinimum(map, 'PluginAssembly', data.pluginAssemblies.length);
+
+  const modelDrivenApps = data.apps.filter((app) => app.appType === AppType.ModelDriven).length;
+  const canvasApps = data.apps.filter((app) => app.appType === AppType.Canvas || app.appType === AppType.CustomPage).length;
+  upsertInventoryMinimum(map, 'AppModule', modelDrivenApps);
+  upsertInventoryMinimum(map, 'CanvasApp', canvasApps);
+
+  metadata.componentInventory = Array.from(map.entries())
+    .map(([componentType, count]) => ({ componentType, count } as SolutionComponentInventoryItem))
+    .sort((left, right) => left.componentType.localeCompare(right.componentType));
 }
 
 // ---------------------------------------------------------------------------
@@ -493,9 +937,11 @@ function parseSolutionMetadata(xml: string): SolutionMetadata {
  */
 function mapAttributeType(xmlType: string): AttributeType {
   const raw = (xmlType || '').trim().toLowerCase();
-  const t = raw
-    .replace(/attribute$/, '')
+  const lastToken = raw.split('.').pop() || raw;
+  const t = lastToken
     .replace(/[_\s-]+/g, '')
+    .replace(/metadata$/, '')
+    .replace(/attribute$/, '')
     .replace(/type$/, '');
 
   if (/^\d+$/.test(t)) {
@@ -564,6 +1010,12 @@ function mapAttributeType(xmlType: string): AttributeType {
     virtual:            AttributeType.Virtual,
     managedproperty:    AttributeType.ManagedProperty,
   };
+
+  if (t.includes('lookup')) return AttributeType.Lookup;
+  if (t.includes('owner')) return AttributeType.Owner;
+  if (t.includes('customer')) return AttributeType.Customer;
+  if (t.includes('partylist')) return AttributeType.PartyList;
+
   return map[t] ?? AttributeType.Unknown;
 }
 
@@ -600,6 +1052,7 @@ function mapWebResourceType(code: number | string): WebResourceType {
 function parseEntityNode(
   entityNode: Record<string, unknown>,
   warnings: string[],
+  customPrefixes: string[] = [],
 ): EntityDefinition {
   const entityInfo = (entityNode['EntityInfo'] ?? entityNode) as Record<string, unknown>;
   const entity     = (entityInfo['entity'] ?? entityInfo) as Record<string, unknown>;
@@ -628,7 +1081,11 @@ function parseEntityNode(
     );
   })();
 
-  const isCustom         = xmlStr(entity, 'IsCustomEntity') === 'true' || xmlStr(entity, '@_IsCustomEntity') === 'true';
+  const isCustom         =
+    parseBooleanMetadata(entity, ['IsCustomEntity', 'IsCustomizable']) ??
+    parseBooleanLike(xmlStr(entity, 'IsCustomEntity')) ??
+    parseBooleanLike(xmlStr(entity, '@_IsCustomEntity')) ??
+    false;
   const isActivity       = xmlStr(entity, 'IsActivity') === 'true';
   const changeTracking   = xmlStr(entity, 'ChangeTrackingEnabled') === 'true';
   const objectTypeCode   = (() => {
@@ -645,11 +1102,27 @@ function parseEntityNode(
     return Array.isArray(a) ? a : [a];
   })();
 
+  const normalizedCustomPrefixes = customPrefixes
+    .map((prefix) => prefix.trim().toLowerCase())
+    .filter(Boolean);
+
   const attributes: EntityAttribute[] = rawAttrs.map((rAttr) => {
     const a = rAttr as Record<string, unknown>;
     const attrName    = xmlStr(a, 'Name').toLowerCase() || xmlStr(a, '@_Name').toLowerCase() || xmlStr(a, 'LogicalName');
-    const typeStr     = xmlStr(a, 'Type') || xmlStr(a, '@_Type') || xmlStr(a, 'AttributeType');
-    const attrType    = mapAttributeType(typeStr);
+    const typeStr     =
+      xmlStr(a, 'Type') ||
+      xmlStr(a, '@_Type') ||
+      xmlStr(a, 'AttributeType') ||
+      xmlStr(a, 'attributetype') ||
+      xmlStr(a, 'AttributeTypeName') ||
+      xmlStr(a, 'attributetypename') ||
+      xmlStr(a, 'AttributeTypeDisplayName') ||
+      xmlStr(a, 'attributetypedisplayname') ||
+      xmlStr(a, 'TypeName') ||
+      xmlStr(a, 'typename') ||
+      findFirstStringByKey(a, new Set(['type', 'attributetype', 'attributetypename', 'attributetypedisplayname', 'typename'])) ||
+      '';
+    const mappedAttrType = mapAttributeType(typeStr);
     // RequiredLevel may be a plain string OR a child element with @_Value attribute (schema varies by export version)
     const requiredLevelValue = (() => {
       const rl = a['RequiredLevel'];
@@ -658,25 +1131,113 @@ function parseEntityNode(
       const rlObj = firstObject(rl);
       return (rlObj ? xmlStr(rlObj, '@_Value') || xmlStr(rlObj, 'Value') || xmlStr(rlObj, '#text') : '') || String(rl);
     })();
-    const required    = requiredLevelValue === 'Required' || requiredLevelValue === 'SystemRequired' || requiredLevelValue === 'ApplicationRequired';
-    const isCustomAttr = xmlStr(a, 'IsCustomAttribute') === 'true' || xmlStr(a, '@_IsCustomAttribute') === 'true';
+    const parseBoolMeta = (keys: string[]): boolean | undefined => parseBooleanMetadata(a, keys);
+    const parseBoolMetaWithSource = (keys: string[]): ParsedBooleanMetadata | undefined => parseBooleanMetadataWithSource(a, keys);
+    const requiredLevelNormalized = requiredLevelValue.toLowerCase();
+    const required = ['required', 'systemrequired', 'applicationrequired'].includes(requiredLevelNormalized);
+    const customMeta = parseBoolMetaWithSource(['IsCustomAttribute', 'IsCustomField']);
+    const isCustomByPrefix =
+      !!attrName &&
+      normalizedCustomPrefixes.some((prefix) => attrName.toLowerCase().startsWith(`${prefix}_`));
+    const isCustomAttr = customMeta?.value ?? isCustomByPrefix;
     const isPrimaryName = xmlStr(a, 'IsPrimaryName') === 'true' || xmlStr(a, '@_IsPrimaryName') === 'true';
-    const isAuditEnabled = xmlStr(a, 'IsAuditEnabled') === 'true' || xmlStr(a, '@_IsAuditEnabled') === 'true'
-      || (() => { const ia = firstObject(a['IsAuditEnabled']); return ia ? xmlStr(ia, '@_Value') !== 'false' && xmlStr(ia, 'Value') !== 'false' : false; })();
-    const maxLength   = a['MaxLength'] !== undefined ? Number(a['MaxLength']) : undefined;
-    const precision   = a['Precision'] !== undefined ? Number(a['Precision']) : undefined;
-
-    const lookupTarget: string | undefined = (() => {
-      if (attrType !== AttributeType.Lookup && attrType !== AttributeType.Owner && attrType !== AttributeType.Customer) {
-        return undefined;
+    const isAuditEnabled = parseBoolMeta(['IsAuditEnabled']);
+    const isSecured = parseBoolMeta(['IsSecured']);
+    const displayMaskValue = xmlStr(a, 'DisplayMask') || xmlStr(a, 'displaymask');
+    const advancedFindFromDisplayMask: ParsedBooleanMetadata | undefined =
+      displayMaskValue && displayMaskValue.toLowerCase().split('|').includes('validforadvancedfind')
+        ? { value: true, sourceKey: 'DisplayMask' }
+        : undefined;
+    const advancedFindMeta =
+      parseBoolMetaWithSource(['IsValidForAdvancedFind', 'ValidForAdvancedFind']) ?? advancedFindFromDisplayMask;
+    const isValidForAdvancedFind = advancedFindMeta?.value;
+    const isManaged = parseBoolMeta(['IsManaged']);
+    const numberMeta = (key: string): number | undefined => {
+      const direct = xmlStr(a, key) || xmlStr(a, `@_${key}`) || xmlStr(a, key.toLowerCase()) || xmlStr(a, `@_${key.toLowerCase()}`);
+      if (direct) {
+        const parsed = Number(direct);
+        if (!Number.isNaN(parsed)) return parsed;
       }
-      const targets = (a['Targets'] ?? a['targets'] ?? '') as string;
-      return targets || undefined;
+      const node = firstObject(a[key] ?? a[key.toLowerCase()]);
+      if (!node) return undefined;
+      const nodeValue = xmlStr(node, '@_Value') || xmlStr(node, 'Value') || xmlStr(node, '#text');
+      if (!nodeValue) return undefined;
+      const parsed = Number(nodeValue);
+      return Number.isNaN(parsed) ? undefined : parsed;
+    };
+    const textMeta = (keys: string[]): string | undefined => {
+      for (const key of keys) {
+        const direct = xmlStr(a, key) || xmlStr(a, `@_${key}`) || xmlStr(a, key.toLowerCase()) || xmlStr(a, `@_${key.toLowerCase()}`);
+        if (direct) return direct;
+
+        const node = firstObject(a[key] ?? a[key.toLowerCase()]);
+        if (!node) continue;
+        const nodeValue = xmlStr(node, '@_Value') || xmlStr(node, 'Value') || xmlStr(node, '#text');
+        if (nodeValue) return nodeValue;
+      }
+      return undefined;
+    };
+
+    const maxLength = numberMeta('MaxLength');
+    const precision = numberMeta('Precision');
+    const minValue =
+      textMeta(['MinValue', 'Min']) ||
+      findFirstStringByKey(a, new Set(['minvalue', 'min'])) ||
+      numberMeta('MinValue')?.toString();
+    const maxValue =
+      textMeta(['MaxValue', 'Max']) ||
+      findFirstStringByKey(a, new Set(['maxvalue', 'max'])) ||
+      numberMeta('MaxValue')?.toString();
+    const format = textMeta(['Format', 'DateTimeBehavior', 'ImeMode']) || findFirstStringByKey(a, new Set(['format', 'datetimebehavior', 'imemode']));
+    const defaultValue = textMeta(['DefaultValue', 'Default']) || findFirstStringByKey(a, new Set(['defaultvalue', 'default'])) || undefined;
+
+    const lookupTargets: string[] | undefined = (() => {
+      const targetsNode = a['Targets'] ?? a['targets'];
+      if (!targetsNode) return undefined;
+
+      const parsedTargets: string[] = [];
+
+      if (typeof targetsNode === 'string') {
+        targetsNode.split(',').map((part) => part.trim()).filter(Boolean).forEach((item) => parsedTargets.push(item));
+      } else {
+        const targetsObj = firstObject(targetsNode);
+        if (targetsObj) {
+          const rawTarget = targetsObj['Target'] ?? targetsObj['target'];
+          const targetNodes = Array.isArray(rawTarget) ? rawTarget : rawTarget ? [rawTarget] : [];
+          targetNodes.forEach((target) => {
+            if (typeof target === 'string') {
+              const value = target.trim();
+              if (value) parsedTargets.push(value);
+              return;
+            }
+            const t = target as Record<string, unknown>;
+            const value = xmlStr(t, '#text') || xmlStr(t, '@_Name') || xmlStr(t, 'Name');
+            if (value) parsedTargets.push(value.trim());
+          });
+        }
+      }
+
+      return uniqueStrings(parsedTargets);
     })();
 
-    const osName: string | undefined = (() => {
-      const osRef = a['OptionSet'] as Record<string, unknown> | undefined;
-      if (!osRef) return undefined;
+    const attrType =
+      mappedAttrType === AttributeType.Unknown && lookupTargets && lookupTargets.length > 0
+        ? AttributeType.Lookup
+        : mappedAttrType;
+
+    const lookupTarget = lookupTargets?.[0];
+
+    const optionSetName: string | undefined = (() => {
+      if (attrType !== AttributeType.OptionSet && attrType !== AttributeType.MultiSelectOptionSet) {
+        return undefined;
+      }
+
+      const osRef = firstObject(a['OptionSet'] ?? a['optionset']);
+      if (!osRef) {
+        const directName = xmlStr(a, 'OptionSetName') || xmlStr(a, 'optionsetname');
+        return directName || undefined;
+      }
+
       return xmlStr(osRef, '@_Name') || xmlStr(osRef, 'Name') || undefined;
     })();
 
@@ -703,6 +1264,18 @@ function parseEntityNode(
       const osContainer = firstObject(a['OptionSet'] ?? a['optionset']);
       if (!osContainer) return undefined;
 
+      const optionSetDefaultRaw =
+        xmlStr(osContainer, '@_DefaultValue') ||
+        xmlStr(osContainer, '@_defaultvalue') ||
+        xmlStr(osContainer, 'DefaultValue') ||
+        xmlStr(osContainer, 'defaultvalue') ||
+        xmlStr(firstObject(osContainer['DefaultValue'] ?? osContainer['defaultvalue']) ?? {}, '@_Value') ||
+        xmlStr(firstObject(osContainer['DefaultValue'] ?? osContainer['defaultvalue']) ?? {}, 'Value') ||
+        undefined;
+      const optionSetDefaultNumber = optionSetDefaultRaw !== undefined && optionSetDefaultRaw !== ''
+        ? Number(optionSetDefaultRaw)
+        : undefined;
+
       const valuesContainer = firstObject(osContainer['Options'] ?? osContainer['options']);
       const rawOptions = valuesContainer?.['Option'] ?? valuesContainer?.['option'];
       const optionNodes = Array.isArray(rawOptions) ? rawOptions : rawOptions ? [rawOptions] : [];
@@ -727,6 +1300,10 @@ function parseEntityNode(
             label,
             description,
             color: xmlStr(o, '@_color') || undefined,
+            isDefault:
+              (xmlStr(o, '@_default') || xmlStr(o, '@_isdefault') || xmlStr(o, 'default') || xmlStr(o, 'isdefault') || '').toLowerCase() === 'true' ||
+              (!!defaultValue && defaultValue === String(value)) ||
+              (optionSetDefaultNumber !== undefined && !Number.isNaN(optionSetDefaultNumber) && optionSetDefaultNumber === value),
           } as OptionSetOption;
         })
         .filter((item): item is OptionSetOption => !!item);
@@ -740,14 +1317,30 @@ function parseEntityNode(
       description:     attrDescription,
       type:            attrType,
       required,
+      requiredLevel:   requiredLevelValue || undefined,
       isCustom:        isCustomAttr,
       isPrimaryName,
       isAuditEnabled,
+      isSecured,
+      isValidForAdvancedFind,
+      isManaged,
       maxLength,
       precision,
+      minValue,
+      maxValue,
+      format,
+      defaultValue,
       lookupTarget,
+      lookupTargets,
       options,
-      optionSetName:   osName,
+      optionSetName,
+      metadataSources:
+        customMeta || advancedFindMeta
+          ? {
+            isCustom: customMeta?.sourceKey,
+            isValidForAdvancedFind: advancedFindMeta?.sourceKey,
+          }
+          : undefined,
     } as EntityAttribute;
   });
 
@@ -1034,10 +1627,416 @@ function extractSitemapAreas(rawText: string): string[] {
   return Array.from(areas);
 }
 
+function parseSiteMapStructure(rawText: string): {
+  areas: string[];
+  entities: string[];
+  structure: AppSiteMapArea[];
+  settings?: AppSiteMapSettings;
+} {
+  if (!rawText) return { areas: [], entities: [], structure: [] };
+
+  const areas = new Set<string>();
+  const entities = new Set<string>();
+  const structure: AppSiteMapArea[] = [];
+  let settings: AppSiteMapSettings | undefined;
+
+  const normalizeLabel = (node: Record<string, unknown>, fallback = ''): string =>
+    xmlStrAny(node, [
+      '@_Title', '@_title',
+      '@_Name', '@_name',
+      '@_Id', '@_id',
+      'Title', 'title',
+      'Name', 'name',
+      'Id', 'id',
+    ]) || fallback;
+
+  const normalizeEntity = (node: Record<string, unknown>): string =>
+    xmlStrAny(node, ['@_Entity', '@_entity', 'Entity', 'entity']);
+
+  const findEmbeddedSiteMap = (value: unknown): Record<string, unknown> | undefined => {
+    if (!value) return undefined;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = findEmbeddedSiteMap(item);
+        if (found) return found;
+      }
+      return undefined;
+    }
+    if (typeof value !== 'object') return undefined;
+
+    const obj = value as Record<string, unknown>;
+    const direct = firstObject(obj['SiteMap']) || firstObject(obj['sitemap']);
+    if (direct) return direct;
+
+    for (const child of Object.values(obj)) {
+      const found = findEmbeddedSiteMap(child);
+      if (found) return found;
+    }
+    return undefined;
+  };
+
+  try {
+    const doc = xmlParser.parse(rawText) as Record<string, unknown>;
+    const siteMapRoot = findEmbeddedSiteMap(doc) || doc;
+
+    settings = {
+      showHome: parseBooleanLike(xmlStrAny(siteMapRoot, ['@_ShowHome', '@_showhome', 'ShowHome', 'showhome'])),
+      showPinned: parseBooleanLike(xmlStrAny(siteMapRoot, ['@_ShowPinned', '@_showpinned', 'ShowPinned', 'showpinned'])),
+      showRecents: parseBooleanLike(xmlStrAny(siteMapRoot, ['@_ShowRecents', '@_showrecents', 'ShowRecents', 'showrecents'])),
+      enableCollapsibleGroups: parseBooleanLike(xmlStrAny(siteMapRoot, ['@_EnableCollapsibleGroups', '@_enablecollapsiblegroups', 'EnableCollapsibleGroups', 'enablecollapsiblegroups'])),
+    };
+
+    const buildSubArea = (node: Record<string, unknown>): AppSiteMapSubArea => {
+      const entity = normalizeEntity(node);
+      if (entity) entities.add(entity);
+      return {
+        id: xmlStrAny(node, ['@_Id', '@_id', 'Id', 'id']) || undefined,
+        title: normalizeLabel(node) || undefined,
+        entity: entity || undefined,
+        url: xmlStrAny(node, ['@_Url', '@_url', 'Url', 'url']) || undefined,
+      };
+    };
+
+    const buildGroup = (node: Record<string, unknown>): AppSiteMapGroup => {
+      const subAreas = [
+        ...asObjectArray(node['SubArea']),
+        ...asObjectArray(node['subarea']),
+      ].map(buildSubArea);
+
+      return {
+        id: xmlStrAny(node, ['@_Id', '@_id', 'Id', 'id']) || undefined,
+        title: normalizeLabel(node) || undefined,
+        subAreas,
+      };
+    };
+
+    const buildArea = (node: Record<string, unknown>): AppSiteMapArea => {
+      const title = normalizeLabel(node);
+      if (title) areas.add(title);
+
+      const groups = [
+        ...asObjectArray(node['Group']),
+        ...asObjectArray(node['group']),
+      ].map(buildGroup);
+
+      const directSubAreas = [
+        ...asObjectArray(node['SubArea']),
+        ...asObjectArray(node['subarea']),
+      ];
+      if (directSubAreas.length > 0) {
+        groups.push({
+          id: undefined,
+          title: undefined,
+          subAreas: directSubAreas.map(buildSubArea),
+        });
+      }
+
+      return {
+        id: xmlStrAny(node, ['@_Id', '@_id', 'Id', 'id']) || undefined,
+        title: title || undefined,
+        groups,
+      };
+    };
+
+    const areaNodes = [
+      ...asObjectArray(siteMapRoot['Area']),
+      ...asObjectArray(siteMapRoot['area']),
+    ];
+
+    areaNodes.forEach((areaNode) => {
+      structure.push(buildArea(areaNode));
+    });
+  } catch {
+    // Fall through to regex-based extraction only
+  }
+
+  extractSitemapAreas(rawText).forEach((value) => areas.add(value));
+
+  const entityRegex = /<(?:SubArea|subarea)[^>]*\b(?:Entity|entity)="([^"]+)"/g;
+  let match = entityRegex.exec(rawText);
+  while (match) {
+    const value = match[1]?.trim();
+    if (value) entities.add(value);
+    match = entityRegex.exec(rawText);
+  }
+
+  return {
+    areas: Array.from(areas),
+    entities: Array.from(entities),
+    structure,
+    settings,
+  };
+}
+
 function findFlowMatches(flow: Record<string, unknown>, candidates: string[]): string[] {
   if (candidates.length === 0) return [];
   const serialized = JSON.stringify(flow).toLowerCase();
   return Array.from(new Set(candidates.filter((candidate) => candidate && serialized.includes(candidate.toLowerCase()))));
+}
+
+function normalizeIdentifierKey(value: string | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
+function mergeAppDefinition(existing: AppDefinition, incoming: AppDefinition): AppDefinition {
+  const mergedSiteMap = incoming.siteMap && incoming.siteMap.length > 0
+    ? incoming.siteMap
+    : existing.siteMap;
+
+  return {
+    ...existing,
+    ...incoming,
+    name: existing.name || incoming.name,
+    displayName: existing.displayName || incoming.displayName,
+    uniqueName: existing.uniqueName || incoming.uniqueName,
+    version: existing.version || incoming.version,
+    entities: uniqueStrings([...(existing.entities ?? []), ...(incoming.entities ?? [])]),
+    sitemapAreas: uniqueStrings([...(existing.sitemapAreas ?? []), ...(incoming.sitemapAreas ?? [])]),
+    connectors: uniqueStrings([...(existing.connectors ?? []), ...(incoming.connectors ?? [])]),
+    siteMap: mergedSiteMap,
+    siteMapSettings: existing.siteMapSettings || incoming.siteMapSettings,
+    canvasInsights: mergeCanvasInsights(existing.canvasInsights, incoming.canvasInsights),
+  };
+}
+
+function extractCanvasInsightsFromText(rawText: string): CanvasAppInsights | undefined {
+  if (!rawText) return undefined;
+
+  const screenNames = new Set<string>();
+  const navigation = new Set<string>();
+
+  const screenRegex = /^\s*([A-Za-z0-9_\- ]{1,120})\s+As\s+screen\b/gim;
+  let screenMatch = screenRegex.exec(rawText);
+  while (screenMatch) {
+    const name = (screenMatch[1] ?? '').trim();
+    if (name) screenNames.add(name);
+    screenMatch = screenRegex.exec(rawText);
+  }
+
+  const navRegex = /Navigate\s*\(\s*([A-Za-z0-9_\- ]{1,120})/gim;
+  let navMatch = navRegex.exec(rawText);
+  while (navMatch) {
+    const target = (navMatch[1] ?? '').replace(/["'`]/g, '').trim();
+    if (target) navigation.add(target);
+    navMatch = navRegex.exec(rawText);
+  }
+
+  if (screenNames.size === 0 && navigation.size === 0) return undefined;
+
+  const insight: CanvasAppInsights = {};
+  if (screenNames.size > 0) {
+    insight.screenNames = Array.from(screenNames).sort((a, b) => a.localeCompare(b));
+    insight.screenCount = screenNames.size;
+  }
+  if (navigation.size > 0) {
+    const defaultSource = insight.screenNames?.[0] ?? 'Unknown';
+    insight.navigation = Array.from(navigation)
+      .map((to) => ({ from: defaultSource, to }))
+      .sort((a, b) => `${a.from}|${a.to}`.localeCompare(`${b.from}|${b.to}`));
+  }
+  return insight;
+}
+
+function countNodes(
+  value: unknown,
+  predicate: (node: Record<string, unknown>) => boolean,
+): number {
+  let count = 0;
+  const visit = (current: unknown) => {
+    if (!current) return;
+    if (Array.isArray(current)) {
+      current.forEach(visit);
+      return;
+    }
+    if (typeof current !== 'object') return;
+
+    const node = current as Record<string, unknown>;
+    if (predicate(node)) count += 1;
+    Object.values(node).forEach(visit);
+  };
+  visit(value);
+  return count;
+}
+
+function extractCanvasAppInsights(metadata: Record<string, unknown>): CanvasAppInsights {
+  const screenNames = new Set<string>();
+  const screenControls = new Map<string, Set<string>>();
+  const navigationLinks = new Set<string>();
+  const screens = countNodes(metadata, (node) => {
+    const type = xmlStrAny(node, ['Type', 'type', 'ControlType', 'controlType', '@_Type', '@_type']).toLowerCase();
+    const kind = xmlStrAny(node, ['Kind', 'kind']).toLowerCase();
+    const isScreen = type === 'screen' || kind === 'screen';
+    if (isScreen) {
+      const screenName = xmlStrAny(node, ['Name', 'name', 'DisplayName', 'displayName']);
+      if (screenName) screenNames.add(screenName);
+    }
+    return isScreen;
+  });
+
+  const controls = countNodes(metadata, (node) => {
+    const type = xmlStrAny(node, ['ControlType', 'controlType', 'Type', 'type']).toLowerCase();
+    if (!type) return false;
+    return !['screen', 'appinfo', 'app'].includes(type);
+  });
+
+  const dataSources = new Set<string>();
+  const variables = new Set<string>();
+  const resources = new Set<string>();
+
+  const isControlNode = (node: Record<string, unknown>): boolean => {
+    const type = xmlStrAny(node, ['ControlType', 'controlType', 'Type', 'type', '@_type', '@_Type']).toLowerCase();
+    if (!type) return false;
+    return !['screen', 'appinfo', 'app', 'datasource', 'table'].includes(type);
+  };
+
+  const visit = (value: unknown, currentScreen = '') => {
+    if (!value) return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, currentScreen));
+      return;
+    }
+    if (typeof value !== 'object') return;
+
+    const node = value as Record<string, unknown>;
+    const nodeName = xmlStrAny(node, ['Name', 'name', 'DisplayName', 'displayName']);
+    const nodeType = xmlStrAny(node, ['Type', 'type', 'Kind', 'kind', 'ControlType', 'controlType']).toLowerCase();
+
+    let nextScreen = currentScreen;
+    if (nodeType === 'screen' && nodeName) {
+      nextScreen = nodeName;
+      screenNames.add(nodeName);
+      if (!screenControls.has(nodeName)) screenControls.set(nodeName, new Set<string>());
+    } else if (nextScreen && nodeName && isControlNode(node)) {
+      if (!screenControls.has(nextScreen)) screenControls.set(nextScreen, new Set<string>());
+      screenControls.get(nextScreen)!.add(nodeName);
+    }
+
+    const serializedNode = JSON.stringify(node);
+    const navRegex = /Navigate\s*\(\s*([^,)]+)/gi;
+    let navMatch = navRegex.exec(serializedNode);
+    while (navMatch) {
+      const targetRaw = navMatch[1]?.replace(/["'`]/g, '').trim();
+      if (targetRaw) {
+        const target = targetRaw.replace(/\b(Screen|scr)_?/gi, '').trim() || targetRaw;
+        if (nextScreen && target) {
+          navigationLinks.add(`${nextScreen}|${target}`);
+        }
+      }
+      navMatch = navRegex.exec(serializedNode);
+    }
+
+    const dsName = xmlStrAny(node, ['DataSourceName', 'dataSourceName', 'Name', 'name']);
+    if (dsName && (nodeType.includes('datasource') || nodeType.includes('table'))) {
+      dataSources.add(dsName);
+    }
+
+    const varName = xmlStrAny(node, ['VariableName', 'variableName', 'CollectionName', 'collectionName']);
+    if (varName) variables.add(varName);
+
+    const media = xmlStrAny(node, ['MediaName', 'mediaName', 'ResourceName', 'resourceName', 'FileName', 'fileName']);
+    if (media && /\.(png|jpg|jpeg|gif|svg|bmp|ico|mp4|mp3|wav|json)$/i.test(media)) {
+      resources.add(media);
+    }
+
+    Object.values(node).forEach((inner) => visit(inner, nextScreen));
+  };
+
+  visit(metadata);
+
+  const insight: CanvasAppInsights = {};
+  const resolvedScreenCount = Math.max(screens, screenNames.size);
+  if (resolvedScreenCount > 0) insight.screenCount = resolvedScreenCount;
+  if (controls > 0) insight.controlCount = controls;
+  if (dataSources.size > 0) insight.dataSourceCount = dataSources.size;
+  if (variables.size > 0) insight.variableCount = variables.size;
+  if (resources.size > 0) insight.resourceCount = resources.size;
+  if (screenNames.size > 0) insight.screenNames = Array.from(screenNames).sort((a, b) => a.localeCompare(b));
+  if (dataSources.size > 0) insight.dataSources = Array.from(dataSources).sort((a, b) => a.localeCompare(b));
+  if (variables.size > 0) insight.variables = Array.from(variables).sort((a, b) => a.localeCompare(b));
+  if (resources.size > 0) insight.resources = Array.from(resources).sort((a, b) => a.localeCompare(b));
+  if (screenControls.size > 0) {
+    insight.screens = Array.from(screenControls.entries())
+      .map(([name, controls]) => ({
+        name,
+        controls: Array.from(controls).sort((a, b) => a.localeCompare(b)),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+  if (navigationLinks.size > 0) {
+    insight.navigation = Array.from(navigationLinks)
+      .map((value) => {
+        const [from, to] = value.split('|');
+        return { from, to };
+      })
+      .filter((link) => !!link.from && !!link.to)
+      .sort((a, b) => `${a.from}|${a.to}`.localeCompare(`${b.from}|${b.to}`));
+  }
+  return insight;
+}
+
+function mergeCanvasInsights(base: CanvasAppInsights | undefined, incoming: CanvasAppInsights | undefined): CanvasAppInsights | undefined {
+  if (!base && !incoming) return undefined;
+
+  const mergeCount = (left: number | undefined, right: number | undefined): number | undefined => {
+    const value = Math.max(left ?? 0, right ?? 0);
+    return value > 0 ? value : undefined;
+  };
+
+  const mergedScreenNames = uniqueStrings([...(base?.screenNames ?? []), ...(incoming?.screenNames ?? [])]);
+  const mergedDataSources = uniqueStrings([...(base?.dataSources ?? []), ...(incoming?.dataSources ?? [])]);
+  const mergedVariables = uniqueStrings([...(base?.variables ?? []), ...(incoming?.variables ?? [])]);
+  const mergedResources = uniqueStrings([...(base?.resources ?? []), ...(incoming?.resources ?? [])]);
+
+  const merged: CanvasAppInsights = {
+    screenCount: mergeCount(base?.screenCount, incoming?.screenCount),
+    controlCount: mergeCount(base?.controlCount, incoming?.controlCount),
+    dataSourceCount: mergeCount(base?.dataSourceCount, incoming?.dataSourceCount),
+    variableCount: mergeCount(base?.variableCount, incoming?.variableCount),
+    resourceCount: mergeCount(base?.resourceCount, incoming?.resourceCount),
+    screenNames: mergedScreenNames,
+    dataSources: mergedDataSources,
+    variables: mergedVariables,
+    resources: mergedResources,
+  };
+
+  if ((merged.screenCount ?? 0) < mergedScreenNames.length) {
+    merged.screenCount = mergedScreenNames.length;
+  }
+  if ((merged.dataSourceCount ?? 0) < mergedDataSources.length) {
+    merged.dataSourceCount = mergedDataSources.length;
+  }
+  if ((merged.variableCount ?? 0) < mergedVariables.length) {
+    merged.variableCount = mergedVariables.length;
+  }
+  if ((merged.resourceCount ?? 0) < mergedResources.length) {
+    merged.resourceCount = mergedResources.length;
+  }
+
+  const screenMap = new Map<string, Set<string>>();
+  [...(base?.screens ?? []), ...(incoming?.screens ?? [])].forEach((screen) => {
+    if (!screenMap.has(screen.name)) screenMap.set(screen.name, new Set<string>());
+    screen.controls.forEach((control) => screenMap.get(screen.name)!.add(control));
+  });
+  if (screenMap.size > 0) {
+    merged.screens = Array.from(screenMap.entries())
+      .map(([name, controls]) => ({ name, controls: Array.from(controls).sort((a, b) => a.localeCompare(b)) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  const navMap = new Set<string>();
+  [...(base?.navigation ?? []), ...(incoming?.navigation ?? [])].forEach((link) => {
+    navMap.add(`${link.from}|${link.to}`);
+  });
+  if (navMap.size > 0) {
+    merged.navigation = Array.from(navMap)
+      .map((value) => {
+        const [from, to] = value.split('|');
+        return { from, to };
+      })
+      .sort((a, b) => `${a.from}|${a.to}`.localeCompare(`${b.from}|${b.to}`));
+  }
+
+  return merged;
 }
 
 function parseDashboardComponents(formXml: string): string[] {
@@ -1371,6 +2370,12 @@ export async function parseSolutionZip(
   const views:                     ViewDefinition[]                    = [];
   const processes:                 ProcessDefinition[]                 = [];
   const apps:                      AppDefinition[]                     = [];
+  const agents:                    AgentDefinition[]                   = [];
+  const aiModels:                  AIModelDefinition[]                 = [];
+  const desktopFlows:              DesktopFlowDefinition[]             = [];
+  const dataflows:                 DataflowDefinition[]                = [];
+  const customApis:                CustomAPIDefinition[]               = [];
+  const offlineProfiles:           OfflineProfileDefinition[]          = [];
   const webResources:              WebResourceDefinition[]             = [];
   const securityRoles:             SecurityRoleDefinition[]            = [];
   const fieldSecurityProfiles:     FieldSecurityProfileDefinition[]    = [];
@@ -1395,7 +2400,8 @@ export async function parseSolutionZip(
     })();
     rawEntities.forEach((e) => {
       try {
-        entities.push(parseEntityNode(e as Record<string, unknown>, warnings));
+        const customPrefixes = [metadata.publisherPrefix, metadata.solutionPrefix].filter((prefix): prefix is string => !!prefix);
+        entities.push(parseEntityNode(e as Record<string, unknown>, warnings, customPrefixes));
       } catch (err) {
         warnings.push(`Failed to parse entity: ${(err as Error).message}`);
       }
@@ -1434,6 +2440,7 @@ export async function parseSolutionZip(
           label:       getLocalizedLabel(o2, fallbackLabel),
           description: xmlStr(o2, 'Description') || xmlStr(o2, 'description') || undefined,
           color:       xmlStr(o2, '@_color') || undefined,
+          isDefault:   (xmlStr(o2, '@_default') || xmlStr(o2, 'default') || '').toLowerCase() === 'true',
         } as OptionSetOption;
       });
       optionSets.push({ name: osName, displayName: osDisplayName, description: osDescription, isGlobal: true, options } as OptionSetDefinition);
@@ -1459,32 +2466,102 @@ export async function parseSolutionZip(
         if (formXmlStr) {
           const formDoc = xmlParser.parse(formXmlStr) as Record<string, unknown>;
           const formNode = (formDoc['form'] ?? formDoc) as Record<string, unknown>;
-          const extractControls = (node: Record<string, unknown>) => {
+          type FieldContext = {
+            location: 'body' | 'header' | 'footer';
+            tabName?: string;
+            sectionName?: string;
+          };
+
+          const contextFromNode = (
+            parentContext: FieldContext,
+            key: string,
+            node: Record<string, unknown>,
+          ): FieldContext => {
+            const nextContext: FieldContext = { ...parentContext };
+            const keyLower = key.toLowerCase();
+
+            if (keyLower === 'header') {
+              nextContext.location = 'header';
+              nextContext.tabName = undefined;
+              nextContext.sectionName = undefined;
+            } else if (keyLower === 'footer') {
+              nextContext.location = 'footer';
+              nextContext.tabName = undefined;
+              nextContext.sectionName = undefined;
+            } else if (keyLower === 'tab') {
+              nextContext.location = 'body';
+              nextContext.tabName = xmlStr(node, '@_name') || xmlStr(node, 'name') || nextContext.tabName;
+            } else if (keyLower === 'section') {
+              nextContext.location = 'body';
+              nextContext.sectionName = xmlStr(node, '@_name') || xmlStr(node, 'name') || nextContext.sectionName;
+            }
+
+            return nextContext;
+          };
+
+          const upsertField = (attributeName: string, context: FieldContext) => {
+            const normalizedAttribute = attributeName.trim();
+            if (!normalizedAttribute) return;
+
+            const existing = fields.find((x) => x.attributeName.toLowerCase() === normalizedAttribute.toLowerCase());
+            if (existing) {
+              if (!existing.location) existing.location = context.location;
+              if (!existing.tabName && context.tabName) existing.tabName = context.tabName;
+              if (!existing.sectionName && context.sectionName) existing.sectionName = context.sectionName;
+              return;
+            }
+
+            fields.push({
+              attributeName: normalizedAttribute,
+              location: context.location,
+              tabName: context.tabName,
+              sectionName: context.sectionName,
+            });
+          };
+
+          const walkNode = (node: Record<string, unknown>, context: FieldContext, keyHint = 'form') => {
+            const scopedContext = contextFromNode(context, keyHint, node);
+
+            if (keyHint.toLowerCase() === 'cell') {
+              const region = xmlStr(node, '@_id') || xmlStr(node, '@_name') || xmlStr(node, 'id') || '';
+              const regionLower = region.toLowerCase();
+              if (regionLower.includes('header')) {
+                scopedContext.location = 'header';
+                scopedContext.tabName = undefined;
+                scopedContext.sectionName = undefined;
+              } else if (regionLower.includes('footer')) {
+                scopedContext.location = 'footer';
+                scopedContext.tabName = undefined;
+                scopedContext.sectionName = undefined;
+              }
+            }
+
             const ctrl = node['control'];
             if (ctrl) {
               const ctrls = Array.isArray(ctrl) ? ctrl : [ctrl];
               ctrls.forEach((c: unknown) => {
                 const cn = c as Record<string, unknown>;
                 const id = xmlStr(cn, '@_id') || xmlStr(cn, 'id');
-                if (id && !fields.some((x) => x.attributeName === id)) {
-                  fields.push({ attributeName: id });
+                if (id) {
+                  upsertField(id, scopedContext);
                 }
               });
             }
-            // Recurse into child elements
-            Object.values(node).forEach((v) => {
-              if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
-                extractControls(v as Record<string, unknown>);
-              } else if (Array.isArray(v)) {
-                v.forEach((item) => {
+
+            Object.entries(node).forEach(([childKey, value]) => {
+              if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                walkNode(value as Record<string, unknown>, scopedContext, childKey);
+              } else if (Array.isArray(value)) {
+                value.forEach((item) => {
                   if (typeof item === 'object' && item !== null) {
-                    extractControls(item as Record<string, unknown>);
+                    walkNode(item as Record<string, unknown>, scopedContext, childKey);
                   }
                 });
               }
             });
           };
-          extractControls(formNode);
+
+          walkNode(formNode, { location: 'body' });
         }
       } catch {
         // best-effort
@@ -1717,6 +2794,24 @@ export async function parseSolutionZip(
       return Array.isArray(ev) ? ev : [ev];
     })();
 
+    const envSchemaByDefinitionId = new Map<string, string>();
+    const mapDefinitionIdToSchema = (node: Record<string, unknown>, schemaName?: string) => {
+      const schema = (schemaName ?? '').trim();
+      if (!schema) return;
+      const definitionId = normalizeIdentifierKey(
+        xmlStr(node, '@_environmentvariabledefinitionid') ||
+        xmlStr(node, 'environmentvariabledefinitionid') ||
+        xmlStr(node, 'EnvironmentVariableDefinitionId') ||
+        xmlStr(node, '@_EnvironmentVariableDefinitionId') ||
+        xmlStr(node, '@_id') ||
+        xmlStr(node, 'id') ||
+        xmlStr(node, 'Id'),
+      );
+      if (definitionId) {
+        envSchemaByDefinitionId.set(definitionId, schema);
+      }
+    };
+
     const envValuesBySchema = new Map<string, string>();
     const evValuesRoot = (root['environmentvariablevalues'] ?? root['EnvironmentVariableValues'] ?? {}) as Record<string, unknown>;
     const rawEnvValues: unknown[] = (() => {
@@ -1726,25 +2821,42 @@ export async function parseSolutionZip(
     })();
     rawEnvValues.forEach((ev) => {
       const evn = ev as Record<string, unknown>;
+      const definitionId = normalizeIdentifierKey(
+        xmlStr(evn, 'environmentvariabledefinitionid') ||
+        xmlStr(evn, 'EnvironmentVariableDefinitionId') ||
+        xmlStr(evn, '@_environmentvariabledefinitionid') ||
+        xmlStr(evn, '@_EnvironmentVariableDefinitionId'),
+      );
       const schemaName =
         xmlStr(evn, 'schemaname') ||
         xmlStr(evn, '@_schemaname') ||
         xmlStr(evn, 'EnvironmentVariableDefinitionSchemaName') ||
         xmlStr(evn, 'environmentvariabledefinitionschemaname') ||
-        xmlStr(evn, 'Name');
-      const value = xmlStr(evn, 'value') || xmlStr(evn, 'Value') || xmlStr(evn, '@_value');
+        xmlStr(evn, 'Name') ||
+        envSchemaByDefinitionId.get(definitionId) ||
+        '';
+      const value =
+        xmlStr(evn, 'value') ||
+        xmlStr(evn, 'Value') ||
+        xmlStr(evn, '@_value') ||
+        xmlStr(evn, 'CurrentValue') ||
+        xmlStr(evn, 'currentvalue');
       if (schemaName && value) envValuesBySchema.set(schemaName, value);
     });
 
     rawEVDs.forEach((ev) => {
       const evn = ev as Record<string, unknown>;
-      const schemaName = xmlStr(evn, 'schemaname') || xmlStr(evn, '@_schemaname');
+      const schemaName =
+        xmlStr(evn, 'schemaname') ||
+        xmlStr(evn, '@_schemaname') ||
+        xmlStr(evn, '@_SchemaName');
+      mapDefinitionIdToSchema(evn, schemaName);
       const currentValue = envValuesBySchema.get(schemaName);
       environmentVariables.push({
         name:          schemaName || xmlStr(evn, 'Name'),
         schemaName,
-        displayName:   getLocalizedLabel(evn, xmlStr(evn, 'displayname') || xmlStr(evn, 'DisplayName') || schemaName),
-        description:   xmlStr(evn, 'description') || undefined,
+        displayName:   environmentVariableDisplayName(evn, schemaName),
+        description:   xmlStr(evn, 'description') || xmlStr(evn, 'Description') || undefined,
         type:          xmlStr(evn, 'type') || xmlStr(evn, 'Type') || 'String',
         defaultValue:  xmlStr(evn, 'defaultvalue') || undefined,
         hasCurrentValue: !!currentValue,
@@ -1837,11 +2949,35 @@ export async function parseSolutionZip(
       const appConnectors = new Set<string>();
       extractConnectorNames(amn, appConnectors);
 
-      const sitemapAreas = Array.from(new Set([
-        ...extractSitemapAreas(xmlStr(amn, 'SiteMapXml') || xmlStr(amn, 'sitemapxml') || ''),
-        ...extractSitemapAreas(xmlStr(amn, 'AppModuleXml') || xmlStr(amn, 'appmodulexml') || ''),
-        xmlStr(amn, 'SiteMapUniqueName') || '',
-      ].filter((value) => !!value)));
+      const sitemapAreasSet = new Set<string>();
+      const siteMapEntities = new Set<string>();
+      const siteMapStructure: AppSiteMapArea[] = [];
+      let siteMapSettings: AppSiteMapSettings | undefined;
+      const siteMapSources = [
+        xmlStr(amn, 'SiteMapXml'),
+        xmlStr(amn, 'sitemapxml'),
+        xmlStr(amn, 'AppModuleXml'),
+        xmlStr(amn, 'appmodulexml'),
+      ].filter((value) => !!value);
+
+      siteMapSources.forEach((source) => {
+        const parsed = parseSiteMapStructure(source);
+        parsed.areas.forEach((area) => sitemapAreasSet.add(area));
+        parsed.entities.forEach((entity) => siteMapEntities.add(entity));
+        parsed.structure.forEach((area) => siteMapStructure.push(area));
+        if (parsed.settings) {
+          siteMapSettings = {
+            showHome: siteMapSettings?.showHome ?? parsed.settings.showHome,
+            showPinned: siteMapSettings?.showPinned ?? parsed.settings.showPinned,
+            showRecents: siteMapSettings?.showRecents ?? parsed.settings.showRecents,
+            enableCollapsibleGroups: siteMapSettings?.enableCollapsibleGroups ?? parsed.settings.enableCollapsibleGroups,
+          };
+        }
+      });
+
+      const siteMapUniqueName = xmlStr(amn, 'SiteMapUniqueName') || xmlStr(amn, 'sitemapuniquename');
+      if (siteMapUniqueName) sitemapAreasSet.add(siteMapUniqueName);
+      siteMapEntities.forEach((entity) => appEntities.add(entity));
 
       apps.push({
         name:         uniqueName,
@@ -1851,10 +2987,149 @@ export async function parseSolutionZip(
         isEnabled:    xmlStr(amn, 'IsEnabled') !== 'false',
         version:      xmlStr(amn, 'ClientVersion') || xmlStr(amn, 'Version') || undefined,
         entities:     Array.from(appEntities),
-        sitemapAreas,
+        sitemapAreas: Array.from(sitemapAreasSet),
+        siteMap:      siteMapStructure,
+        siteMapSettings,
         connectors:   Array.from(appConnectors),
       } as AppDefinition);
     });
+  }
+
+  // ── Step 3b: Merge env vars from folder exports ───────────────────────
+  report(69);
+  const envVarKey = (schemaName?: string, name?: string): string =>
+    normalizeIdentifierKey(schemaName || name);
+
+  const envSchemaByDefinitionId = new Map<string, string>();
+
+  const mapDefinitionIdToSchema = (node: Record<string, unknown>, schemaName?: string) => {
+    const schema = (schemaName ?? '').trim();
+    if (!schema) return;
+    const definitionId = normalizeIdentifierKey(
+      xmlStr(node, '@_environmentvariabledefinitionid') ||
+      xmlStr(node, 'environmentvariabledefinitionid') ||
+      xmlStr(node, 'EnvironmentVariableDefinitionId') ||
+      xmlStr(node, '@_EnvironmentVariableDefinitionId') ||
+      xmlStr(node, '@_id') ||
+      xmlStr(node, 'id') ||
+      xmlStr(node, 'Id'),
+    );
+    if (definitionId) {
+      envSchemaByDefinitionId.set(definitionId, schema);
+    }
+  };
+
+  const mergeEnvironmentVariable = (incoming: EnvironmentVariableDefinition) => {
+    const key = envVarKey(incoming.schemaName, incoming.name);
+    if (!key) return;
+
+    const existingIdx = environmentVariables.findIndex((item) => envVarKey(item.schemaName, item.name) === key);
+    if (existingIdx < 0) {
+      environmentVariables.push(incoming);
+      return;
+    }
+
+    const existing = environmentVariables[existingIdx];
+    environmentVariables[existingIdx] = {
+      ...existing,
+      ...incoming,
+      name: existing.name || incoming.name,
+      schemaName: existing.schemaName || incoming.schemaName,
+      displayName: existing.displayName || incoming.displayName,
+      description: existing.description || incoming.description,
+      type: existing.type || incoming.type,
+      defaultValue: existing.defaultValue || incoming.defaultValue,
+      hasCurrentValue: existing.hasCurrentValue || incoming.hasCurrentValue,
+      currentValue: existing.currentValue || incoming.currentValue,
+    };
+  };
+
+  const envDefinitionEntries = getEntriesWithPrefix(zip, 'environmentvariabledefinitions/');
+  for (const [path, entry] of envDefinitionEntries) {
+    if (
+      entry.dir ||
+      !path.toLowerCase().endsWith('/environmentvariabledefinition.xml')
+    ) {
+      continue;
+    }
+
+    try {
+      const xml = await entry.async('string');
+      if (!xml.trim()) continue;
+      const doc = xmlParser.parse(xml) as Record<string, unknown>;
+      const node =
+        firstObject(doc['environmentvariabledefinition']) ||
+        firstObject(doc['EnvironmentVariableDefinition']) ||
+        doc;
+
+      const schemaName =
+        xmlStr(node, 'schemaname') ||
+        xmlStr(node, '@_schemaname') ||
+        xmlStr(node, '@_SchemaName');
+      mapDefinitionIdToSchema(node, schemaName);
+      const defaultValue =
+        xmlStr(node, 'defaultvalue') ||
+        xmlStr(node, 'defaultValue') ||
+        xmlStr(node, 'DefaultValue') ||
+        undefined;
+
+      mergeEnvironmentVariable({
+        name: schemaName || xmlStr(node, 'Name') || path.split('/').slice(-2)[0],
+        schemaName,
+        displayName: environmentVariableDisplayName(node, schemaName),
+        description: xmlStr(node, 'description') || xmlStr(node, 'Description') || undefined,
+        type: xmlStr(node, 'type') || xmlStr(node, 'Type') || 'String',
+        defaultValue,
+        hasCurrentValue: false,
+      } as EnvironmentVariableDefinition);
+    } catch {
+      warnings.push(`Could not parse environment variable definition: ${path}`);
+    }
+  }
+
+  const envValueEntries = getEntriesWithPrefix(zip, 'environmentvariablevalues/');
+  for (const [path, entry] of envValueEntries) {
+    if (entry.dir || !path.toLowerCase().endsWith('.xml')) continue;
+
+    try {
+      const xml = await entry.async('string');
+      if (!xml.trim()) continue;
+      const doc = xmlParser.parse(xml) as Record<string, unknown>;
+      const node =
+        firstObject(doc['environmentvariablevalue']) ||
+        firstObject(doc['EnvironmentVariableValue']) ||
+        doc;
+
+      const schemaName =
+        xmlStr(node, 'schemaname') ||
+        xmlStr(node, '@_schemaname') ||
+        xmlStr(node, '@_SchemaName') ||
+        envSchemaByDefinitionId.get(normalizeIdentifierKey(
+          xmlStr(node, 'environmentvariabledefinitionid') ||
+          xmlStr(node, 'EnvironmentVariableDefinitionId') ||
+          xmlStr(node, '@_environmentvariabledefinitionid') ||
+          xmlStr(node, '@_EnvironmentVariableDefinitionId'),
+        )) ||
+        path.split('/').pop()?.replace(/\.xml$/i, '');
+      const value =
+        xmlStr(node, 'value') ||
+        xmlStr(node, 'Value') ||
+        xmlStr(node, '@_value') ||
+        xmlStr(node, 'CurrentValue') ||
+        xmlStr(node, 'currentvalue');
+      if (!schemaName || !value) continue;
+
+      mergeEnvironmentVariable({
+        name: schemaName,
+        schemaName,
+        displayName: schemaName,
+        type: 'String',
+        hasCurrentValue: true,
+        currentValue: value,
+      } as EnvironmentVariableDefinition);
+    } catch {
+      warnings.push(`Could not parse environment variable value: ${path}`);
+    }
   }
 
   // ── Step 4: Canvas apps from CanvasApps/ folder ─────────────────────────
@@ -1863,13 +3138,64 @@ export async function parseSolutionZip(
   const discoveredCanvasApps = new Set<string>();
 
   // Actual canvas/custom-page packages are typically exported as *.msapp
-  for (const [path] of canvasEntries) {
+  for (const [path, entry] of canvasEntries) {
     if (path.endsWith('.msapp')) {
       const appName = path.split('/').pop()?.replace(/\.(msapp|json)$/, '') ?? path;
       const cleanName = stripTrailingGuid(appName);
       const displayName = humanizeIdentifier(cleanName || appName);
+      let canvasInsights: CanvasAppInsights | undefined;
+
+      try {
+        const msappBytes = await entry.async('uint8array');
+        const msappZip = await JSZip.loadAsync(msappBytes);
+        let mergedInsights: CanvasAppInsights | undefined;
+
+        for (const [innerPath, innerEntry] of Object.entries(msappZip.files)) {
+          if (innerEntry.dir) continue;
+
+          const lowerPath = innerPath.toLowerCase();
+
+          if (lowerPath.endsWith('.json')) {
+            try {
+              const json = await innerEntry.async('string');
+              if (!json.trim()) continue;
+              const parsed = JSON.parse(json) as Record<string, unknown>;
+              mergedInsights = mergeCanvasInsights(mergedInsights, extractCanvasAppInsights(parsed));
+            } catch {
+              // best-effort parsing for .msapp internals
+            }
+            continue;
+          }
+
+          if (lowerPath.endsWith('.fx.yaml') || lowerPath.endsWith('.yaml') || lowerPath.endsWith('.yml')) {
+            try {
+              const yamlText = await innerEntry.async('string');
+              if (!yamlText.trim()) continue;
+              mergedInsights = mergeCanvasInsights(mergedInsights, extractCanvasInsightsFromText(yamlText));
+            } catch {
+              // best-effort parsing for yaml internals
+            }
+          }
+        }
+        canvasInsights = mergedInsights;
+      } catch {
+        // best-effort only
+      }
+
       // Avoid duplicates with model-driven apps already found
-      if (!apps.some((a) => a.uniqueName === appName)) {
+      const existingIdx = apps.findIndex((a) => a.uniqueName.toLowerCase() === appName.toLowerCase());
+      if (existingIdx >= 0) {
+        apps[existingIdx] = mergeAppDefinition(apps[existingIdx], {
+          name: appName,
+          displayName,
+          appType: AppType.Canvas,
+          uniqueName: appName,
+          isEnabled: true,
+          entities: [],
+          connectors: [],
+          canvasInsights,
+        } as AppDefinition);
+      } else {
         apps.push({
           name:        appName,
           displayName,
@@ -1878,6 +3204,7 @@ export async function parseSolutionZip(
           isEnabled:   true,
           entities:    [],
           connectors:  [],
+          canvasInsights,
         } as AppDefinition);
       }
       discoveredCanvasApps.add(appName.toLowerCase());
@@ -1894,23 +3221,21 @@ export async function parseSolutionZip(
       const metadata = JSON.parse(jsonStr) as Record<string, unknown>;
       const knownCanvasEntities = new Set(entities.map((entity) => entity.logicalName.toLowerCase()));
       const rawName =
-        xmlStr(metadata, 'displayName') ||
         xmlStr(metadata, 'name') ||
+        xmlStr(metadata, 'displayName') ||
         xmlStr((metadata['properties'] ?? {}) as Record<string, unknown>, 'displayName') ||
         xmlStr((metadata['properties'] ?? {}) as Record<string, unknown>, 'name') ||
         path.split('/').slice(-2)[0] ||
         path.split('/').pop()?.replace(/\.json$/, '') ||
         path;
       const uniqueName = stripTrailingGuid(rawName) || rawName;
-      if (discoveredCanvasApps.has(uniqueName.toLowerCase()) || apps.some((a) => a.uniqueName.toLowerCase() === uniqueName.toLowerCase())) {
-        continue;
-      }
 
       const appEntities = new Set<string>();
       extractReferencedEntities(metadata, knownCanvasEntities, appEntities);
 
       const appConnectors = new Set<string>();
       extractConnectorNames(metadata, appConnectors);
+      const canvasInsights = extractCanvasAppInsights(metadata);
 
       const version =
         xmlStr(metadata, 'version') ||
@@ -1918,19 +3243,93 @@ export async function parseSolutionZip(
         xmlStr((metadata['publishInfo'] ?? {}) as Record<string, unknown>, 'version') ||
         undefined;
 
-      apps.push({
-        name: uniqueName,
-        displayName: humanizeIdentifier(uniqueName),
-        appType,
-        uniqueName,
-        isEnabled: true,
-        version,
-        entities: Array.from(appEntities),
-        connectors: Array.from(appConnectors),
-      } as AppDefinition);
+      const existingIdx = apps.findIndex((a) => a.uniqueName.toLowerCase() === uniqueName.toLowerCase());
+      if (existingIdx >= 0) {
+        apps[existingIdx] = mergeAppDefinition(apps[existingIdx], {
+          name: uniqueName,
+          displayName: humanizeIdentifier(uniqueName),
+          appType,
+          uniqueName,
+          isEnabled: true,
+          version,
+          entities: Array.from(appEntities),
+          connectors: Array.from(appConnectors),
+          canvasInsights,
+        } as AppDefinition);
+      } else {
+        apps.push({
+          name: uniqueName,
+          displayName: humanizeIdentifier(uniqueName),
+          appType,
+          uniqueName,
+          isEnabled: true,
+          version,
+          entities: Array.from(appEntities),
+          connectors: Array.from(appConnectors),
+          canvasInsights,
+        } as AppDefinition);
+      }
       discoveredCanvasApps.add(uniqueName.toLowerCase());
     } catch {
       // best-effort only
+    }
+  }
+
+  const appModuleEntries = getEntriesWithPrefix(zip, 'AppModules/');
+  for (const [path, entry] of appModuleEntries) {
+    if (entry.dir || (!path.toLowerCase().endsWith('.xml') && !path.toLowerCase().endsWith('.json'))) continue;
+
+    try {
+      const raw = await entry.async('string');
+      if (!raw.trim()) continue;
+
+      const parsedStructured = readStructuredContent(raw, path);
+      const appNameFromData = parsedStructured
+        ? findFirstStringByKey(parsedStructured, new Set(['uniquename', 'name', 'appuniquename']))
+        : undefined;
+      const displayNameFromData = parsedStructured
+        ? findFirstStringByKey(parsedStructured, new Set(['displayname', 'title', 'appname']))
+        : undefined;
+      const versionFromData = parsedStructured
+        ? findFirstStringByKey(parsedStructured, new Set(['clientversion', 'version']))
+        : undefined;
+
+      const appName = stripTrailingGuid(appNameFromData || path.split('/').slice(-2)[0] || path.split('/').pop()?.replace(/\.[^.]+$/i, '') || path);
+      const displayName = displayNameFromData || humanizeIdentifier(appName);
+
+      const { areas: sitemapAreas, entities: sitemapEntities, structure: siteMapStructure, settings: siteMapSettings } = parseSiteMapStructure(raw);
+      const appConnectors = new Set<string>();
+      if (parsedStructured) extractConnectorNames(parsedStructured, appConnectors);
+
+      const incoming: AppDefinition = {
+        name: appName,
+        displayName,
+        appType: AppType.ModelDriven,
+        uniqueName: appName,
+        isEnabled: true,
+        version: versionFromData || undefined,
+        entities: sitemapEntities,
+        sitemapAreas: sitemapAreas,
+        siteMap: siteMapStructure,
+        siteMapSettings,
+        connectors: Array.from(appConnectors),
+      };
+
+      const existingIdx = apps.findIndex((app) => app.uniqueName.toLowerCase() === appName.toLowerCase());
+      if (existingIdx >= 0) {
+        apps[existingIdx] = mergeAppDefinition(apps[existingIdx], incoming);
+      } else {
+        apps.push(incoming);
+      }
+
+      if (versionFromData) {
+        const idx = apps.findIndex((app) => app.uniqueName.toLowerCase() === appName.toLowerCase());
+        if (idx >= 0 && !apps[idx].version) {
+          apps[idx].version = versionFromData;
+        }
+      }
+    } catch {
+      warnings.push(`Could not parse app module artifact: ${path}`);
     }
   }
 
@@ -1950,6 +3349,215 @@ export async function parseSolutionZip(
         entities: [],
         connectors: [],
       } as AppDefinition);
+    }
+  }
+
+  // ── Step 4b: Agents / AI models / Desktop flows from solution folders ──
+  report(72);
+  const moduleEntries = Object.entries(zip.files)
+    .filter(([path, entry]) => !entry.dir && isModuleTextFile(path));
+
+  const agentNameKeys = new Set(['name', 'displayname', 'agentname', 'botname', 'title']);
+  const aiModelNameKeys = new Set(['name', 'displayname', 'modelname', 'title']);
+  const typeKeys = new Set(['type', 'agenttype', 'modeltype', 'category']);
+  const languageKeys = new Set(['language', 'locale', 'languagecode']);
+  const triggerKeys = new Set(['trigger', 'triggertype', 'channel', 'entrypoint']);
+  const providerKeys = new Set(['provider', 'vendor', 'publisher']);
+  const endpointKeys = new Set(['endpoint', 'deployment', 'deploymentname', 'url']);
+  const versionKeys = new Set(['version', 'modelversion']);
+  const connectorKeys = new Set(['connector', 'connectors', 'connectorid', 'connectionreference', 'connectionreferences']);
+  const enabledKeys = new Set(['enabled', 'isenabled', 'active', 'isactive']);
+  const stepKeys = new Set(['steps', 'actions', 'blocks']);
+
+  for (const [path, entry] of moduleEntries) {
+    const lowerPath = path.toLowerCase();
+    const looksLikeAgent =
+      lowerPath.includes('/agents/') ||
+      lowerPath.startsWith('agents/') ||
+      (lowerPath.includes('copilot') && lowerPath.includes('agent')) ||
+      lowerPath.includes('/botcomponents/');
+    const looksLikeAIModel =
+      lowerPath.startsWith('aimodels/') ||
+      lowerPath.includes('/aimodel') ||
+      lowerPath.includes('/ai-model') ||
+      lowerPath.includes('/ai_models/') ||
+      lowerPath.includes('/models/ai/');
+    const looksLikeDesktopFlow =
+      lowerPath.includes('/desktopflows/') ||
+      lowerPath.includes('/desktopflow/') ||
+      lowerPath.includes('desktop-flow') ||
+      lowerPath.includes('desktopflow') ||
+      lowerPath.includes('/uiflows/');
+    const looksLikeDataflow =
+      lowerPath.startsWith('dataflows/') ||
+      lowerPath.includes('/dataflows/') ||
+      lowerPath.includes('/dataflow/');
+    const looksLikeCustomApi =
+      lowerPath.startsWith('customapis/') ||
+      lowerPath.includes('/customapis/') ||
+      lowerPath.includes('/customapi/') ||
+      lowerPath.includes('/custom-api/');
+    const looksLikeOfflineProfile =
+      lowerPath.startsWith('mobileofflineprofiles/') ||
+      lowerPath.includes('/mobileofflineprofiles/') ||
+      lowerPath.includes('/offlineprofiles/') ||
+      lowerPath.includes('/offlineprofile/');
+
+    if (!looksLikeAgent && !looksLikeAIModel && !looksLikeDesktopFlow && !looksLikeDataflow && !looksLikeCustomApi && !looksLikeOfflineProfile) continue;
+
+    let content: string;
+    try {
+      content = await entry.async('string');
+    } catch {
+      warnings.push(`Could not read module artifact: ${path}`);
+      continue;
+    }
+
+    const parsed = readStructuredContent(content, path);
+    const baseName = stripTrailingGuid(path.split('/').pop()?.replace(/\.[^.]+$/i, '') || path);
+
+    if (looksLikeAgent) {
+      const connectorSet = new Set<string>();
+      if (parsed) collectStringsByKey(parsed, connectorKeys, connectorSet);
+      const agentName =
+        (parsed ? findFirstStringByKey(parsed, agentNameKeys) : undefined) ||
+        humanizeIdentifier(baseName);
+      const agentType = parsed ? findFirstStringByKey(parsed, typeKeys) : undefined;
+      const language = parsed ? findFirstStringByKey(parsed, languageKeys) : undefined;
+      const trigger = parsed ? findFirstStringByKey(parsed, triggerKeys) : undefined;
+      if (!agents.some((agent) => agent.sourcePath.toLowerCase() === path.toLowerCase())) {
+        agents.push({
+          name: baseName,
+          displayName: agentName,
+          sourcePath: path,
+          agentType: agentType || undefined,
+          language: language || undefined,
+          trigger: trigger || undefined,
+          connectors: uniqueStrings(Array.from(connectorSet)),
+        } as AgentDefinition);
+      }
+    }
+
+    if (looksLikeAIModel) {
+      const modelName =
+        (parsed ? findFirstStringByKey(parsed, aiModelNameKeys) : undefined) ||
+        humanizeIdentifier(baseName);
+      const modelType = parsed ? findFirstStringByKey(parsed, typeKeys) : undefined;
+      const provider = parsed ? findFirstStringByKey(parsed, providerKeys) : undefined;
+      const endpoint = parsed ? findFirstStringByKey(parsed, endpointKeys) : undefined;
+      const version = parsed ? findFirstStringByKey(parsed, versionKeys) : undefined;
+      if (!aiModels.some((model) => model.sourcePath.toLowerCase() === path.toLowerCase())) {
+        aiModels.push({
+          name: baseName,
+          displayName: modelName,
+          sourcePath: path,
+          modelType: modelType || undefined,
+          provider: provider || undefined,
+          endpoint: endpoint || undefined,
+          version: version || undefined,
+        } as AIModelDefinition);
+      }
+    }
+
+    if (looksLikeDesktopFlow) {
+      const connectorSet = new Set<string>();
+      if (parsed) collectStringsByKey(parsed, connectorKeys, connectorSet);
+
+      const flowName =
+        (parsed ? findFirstStringByKey(parsed, new Set(['name', 'displayname', 'flowname', 'title'])) : undefined) ||
+        humanizeIdentifier(baseName);
+      const folder = parsed ? findFirstStringByKey(parsed, new Set(['folder', 'group', 'category'])) : undefined;
+      const enabledRaw = parsed ? findFirstStringByKey(parsed, enabledKeys) : undefined;
+      const isEnabled = enabledRaw
+        ? (['true', '1', 'yes', 'enabled', 'active'].includes(enabledRaw.toLowerCase())
+          ? true
+          : ['false', '0', 'no', 'disabled', 'inactive'].includes(enabledRaw.toLowerCase())
+            ? false
+            : undefined)
+        : undefined;
+      const stepCount = parsed
+        ? findArraySizeByKey(parsed, stepKeys)
+        : (content.match(/<(step|action)\b/gi)?.length || undefined);
+
+      if (!desktopFlows.some((flow) => flow.sourcePath.toLowerCase() === path.toLowerCase())) {
+        desktopFlows.push({
+          name: baseName,
+          displayName: flowName,
+          sourcePath: path,
+          folder: folder || undefined,
+          isEnabled,
+          stepCount,
+          connectors: uniqueStrings(Array.from(connectorSet)),
+        } as DesktopFlowDefinition);
+      }
+    }
+
+    if (looksLikeDataflow) {
+      const connectorSet = new Set<string>();
+      if (parsed) collectStringsByKey(parsed, connectorKeys, connectorSet);
+
+      const displayName =
+        (parsed ? findFirstStringByKey(parsed, new Set(['name', 'displayname', 'title', 'dataflowname'])) : undefined) ||
+        humanizeIdentifier(baseName);
+      const refreshMode = parsed
+        ? findFirstStringByKey(parsed, new Set(['refreshmode', 'refresh', 'refreshtype', 'schedule']))
+        : undefined;
+
+      if (!dataflows.some((flow) => flow.sourcePath.toLowerCase() === path.toLowerCase())) {
+        dataflows.push({
+          name: baseName,
+          displayName,
+          sourcePath: path,
+          connectors: uniqueStrings(Array.from(connectorSet)),
+          refreshMode: refreshMode || undefined,
+        } as DataflowDefinition);
+      }
+    }
+
+    if (looksLikeCustomApi) {
+      const displayName =
+        (parsed ? findFirstStringByKey(parsed, new Set(['name', 'displayname', 'uniquename', 'title'])) : undefined) ||
+        humanizeIdentifier(baseName);
+      const boundEntityLogicalName = parsed
+        ? findFirstStringByKey(parsed, new Set(['boundentitylogicalname', 'boundentity', 'entitylogicalname']))
+        : undefined;
+      const isFunctionRaw = parsed
+        ? findFirstStringByKey(parsed, new Set(['isfunction', 'function', 'isfunctionapi']))
+        : undefined;
+      const isFunction = isFunctionRaw
+        ? parseBooleanLike(isFunctionRaw)
+        : undefined;
+
+      if (!customApis.some((api) => api.sourcePath.toLowerCase() === path.toLowerCase())) {
+        customApis.push({
+          name: baseName,
+          displayName,
+          sourcePath: path,
+          boundEntityLogicalName: boundEntityLogicalName || undefined,
+          isFunction,
+        } as CustomAPIDefinition);
+      }
+    }
+
+    if (looksLikeOfflineProfile) {
+      const profileName =
+        (parsed ? findFirstStringByKey(parsed, new Set(['name', 'displayname', 'profilename', 'title'])) : undefined) ||
+        humanizeIdentifier(baseName);
+      const profileType = parsed
+        ? findFirstStringByKey(parsed, new Set(['profiletype', 'type', 'category']))
+        : undefined;
+      const entitiesSet = new Set<string>();
+      if (parsed) collectStringsByKey(parsed, new Set(['entity', 'entityname', 'logicalname', 'table']), entitiesSet);
+
+      if (!offlineProfiles.some((profile) => profile.sourcePath.toLowerCase() === path.toLowerCase())) {
+        offlineProfiles.push({
+          name: baseName,
+          displayName: profileName,
+          sourcePath: path,
+          profileType: profileType || undefined,
+          entities: uniqueStrings(Array.from(entitiesSet)),
+        } as OfflineProfileDefinition);
+      }
     }
   }
 
@@ -2099,11 +3707,28 @@ export async function parseSolutionZip(
         const messageNode = (sn['SdkMessage'] ?? {}) as Record<string, unknown>;
         const filterNode  = (sn['SdkMessageFilter'] ?? {}) as Record<string, unknown>;
         const pluginType  = xmlStr(sn, 'PluginTypeName') || xmlStr(sn, 'plugintypename') || '';
+        const message =
+          xmlStr(messageNode, '@_Name') ||
+          xmlStr(messageNode, 'Name') ||
+          xmlStr(sn, 'MessageName') ||
+          xmlStr(sn, 'messagename') ||
+          findFirstStringByKey(sn, new Set(['messagename', 'message', 'name'])) ||
+          '';
+        const primaryEntity =
+          xmlStr(filterNode, 'PrimaryObjectTypeCode') ||
+          xmlStr(filterNode, '@_PrimaryObjectTypeCode') ||
+          xmlStr(filterNode, 'PrimaryEntity') ||
+          xmlStr(filterNode, '@_PrimaryEntity') ||
+          xmlStr(sn, 'PrimaryObjectTypeCode') ||
+          xmlStr(sn, 'primaryobjecttypecode') ||
+          xmlStr(sn, 'PrimaryEntity') ||
+          findFirstStringByKey(sn, new Set(['primaryobjecttypecode', 'primaryentity', 'entitylogicalname'])) ||
+          undefined;
 
         const step: PluginStepDefinition = {
           name:                 xmlStr(sn, 'Name') || xmlStr(sn, '@_Name'),
-          message:              xmlStr(messageNode, '@_Name') || xmlStr(messageNode, 'Name') || '',
-          primaryEntity:        xmlStr(filterNode, 'PrimaryObjectTypeCode') || undefined,
+          message,
+          primaryEntity,
           stage:                Number(xmlStr(sn, 'Stage') || '20'),
           mode:                 Number(xmlStr(sn, 'Mode') || '0'),
           pluginTypeName:       pluginType,
@@ -2176,6 +3801,26 @@ export async function parseSolutionZip(
     }
   });
 
+  enrichComponentInventory(metadata, {
+    optionSets,
+    forms,
+    views,
+    processes,
+    apps,
+    dataflows,
+    customApis,
+    offlineProfiles,
+    webResources,
+    securityRoles,
+    fieldSecurityProfiles,
+    connectionReferences,
+    environmentVariables,
+    emailTemplates,
+    reports,
+    dashboards,
+    pluginAssemblies,
+  });
+
   // ── Step 7: Assemble and return ──────────────────────────────────────────
   const parsed: ParsedSolution = {
     metadata,
@@ -2185,6 +3830,12 @@ export async function parseSolutionZip(
     views,
     processes,
     apps,
+    agents,
+    aiModels,
+    desktopFlows,
+    dataflows,
+    customApis,
+    offlineProfiles,
     webResources,
     securityRoles,
     fieldSecurityProfiles,

@@ -4,7 +4,13 @@
  */
 
 import { useState, useCallback } from 'react';
-import type { ReleaseAsset, Platform, Architecture, InstallType } from '../utils/versionUtils';
+import type {
+  ReleaseAsset,
+  Platform,
+  Architecture,
+  InstallType,
+  GitHubRelease,
+} from '../utils/versionUtils';
 import { compareVersions, findMatchingAsset, getPlatform } from '../utils/versionUtils';
 
 export interface UpdateCheckResult {
@@ -32,6 +38,41 @@ export function useUpdateCheck() {
     error: null,
   });
 
+  const getRuntimeWindow = (): Window & {
+    electron?: {
+      invoke: (channel: string, ...args: unknown[]) => Promise<any>;
+    };
+    __PPMD_VERSION__?: string;
+  } => window as Window & {
+    electron?: {
+      invoke: (channel: string, ...args: unknown[]) => Promise<any>;
+    };
+    __PPMD_VERSION__?: string;
+  };
+
+  const fetchLatestRelease = useCallback(async (): Promise<GitHubRelease & { html_url: string }> => {
+    const runtimeWindow = getRuntimeWindow();
+
+    if (runtimeWindow.electron?.invoke) {
+      return runtimeWindow.electron.invoke('check-for-updates');
+    }
+
+    const response = await fetch(
+      'https://api.github.com/repos/Hart365/PP-MD/releases/latest',
+      {
+        headers: {
+          Accept: 'application/vnd.github+json',
+        },
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`GitHub API error: ${response.status}`);
+    }
+
+    return response.json();
+  }, []);
+
   /**
    * Check for updates by querying GitHub API
    */
@@ -40,7 +81,8 @@ export function useUpdateCheck() {
 
     try {
       // Get current app version from window (set by Electron)
-      const currentVersion = (window as any).__PPMD_VERSION__ || '1.0.0';
+      const runtimeWindow = getRuntimeWindow();
+      const currentVersion = runtimeWindow.__PPMD_VERSION__ || '1.0.0';
       
       // Get current platform/arch info from Electron main process
       let platform: Platform = getPlatform();
@@ -48,9 +90,9 @@ export function useUpdateCheck() {
       let installType: InstallType = 'portable';
 
       // Request info from Electron main process via IPC
-      if ((window as any).electron?.invoke) {
+      if (runtimeWindow.electron?.invoke) {
         try {
-          const info = await (window as any).electron.invoke('get-app-info');
+          const info = await runtimeWindow.electron.invoke('get-app-info');
           platform = info.platform;
           arch = info.architecture;
           installType = info.installType;
@@ -59,21 +101,8 @@ export function useUpdateCheck() {
         }
       }
 
-      // Fetch latest release from GitHub
-      const response = await fetch(
-        'https://api.github.com/repos/Hart365/PP-MD/releases/latest',
-        {
-          headers: {
-            'Accept': 'application/vnd.github+json',
-          },
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(`GitHub API error: ${response.status}`);
-      }
-
-      const release = await response.json();
+      // Fetch latest release from GitHub (via main process in Electron builds)
+      const release = await fetchLatestRelease();
       const latestVersion = release.tag_name;
 
       // Compare versions
@@ -119,14 +148,19 @@ export function useUpdateCheck() {
         error: null,
       });
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      const errorMessage =
+        err instanceof TypeError
+          ? 'Network error while checking updates. Please verify your connection and try again.'
+          : err instanceof Error
+            ? err.message
+            : 'Unknown error';
       setState({
         checking: false,
         result: null,
         error: errorMessage,
       });
     }
-  }, []);
+  }, [fetchLatestRelease]);
 
   /**
    * Clear the update check result

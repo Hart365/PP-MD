@@ -1,6 +1,16 @@
-import { readdirSync, existsSync } from 'node:fs';
+import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import rcedit from 'rcedit';
+
+function toWindowsVersion(version) {
+  const core = (version ?? '0.0.0').split('-')[0].split('+')[0];
+  const parts = core.split('.').map((part) => Number.parseInt(part, 10));
+  const numericParts = parts.map((part) => (Number.isFinite(part) ? Math.max(0, part) : 0));
+  while (numericParts.length < 4) {
+    numericParts.push(0);
+  }
+  return numericParts.slice(0, 4).join('.');
+}
 
 const releaseDir = resolve(process.cwd(), 'release');
 if (!existsSync(releaseDir)) {
@@ -20,7 +30,9 @@ if (exeCandidates.length === 0) {
   process.exit(1);
 }
 
-const version = '1.0.0.0';
+const packageJsonPath = resolve(process.cwd(), 'package.json');
+const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+const version = toWindowsVersion(packageJson.version);
 
 for (const exeName of exeCandidates) {
   const exePath = join(releaseDir, exeName);

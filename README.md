@@ -1,6 +1,6 @@
-# PP-MD — Power Platform Solution Documenter
+# PP-MD — Power Platform Solution Documentation
 
-PP-MD is a Windows desktop application that turns Microsoft Power Platform solution ZIP exports into structured, portable Markdown documentation — with Mermaid diagrams included. No server, no cloud upload, no licence key required.
+PP-MD is a Windows desktop application that turns Microsoft Power Platform solution ZIP exports into structured, portable Markdown documentation with Mermaid diagrams. No server, no cloud upload, and no licence key required.
 
 ---
 
@@ -71,8 +71,8 @@ Multiple solutions can be loaded at once and reviewed side-by-side, or merged in
 
 | Artifact | Description |
 |---|---|
-| `PP-MD-1.0.0-x64-portable.exe` | Self-contained single executable — no installation required |
-| `PP-MD-1.0.0-x64-installer.exe` | Standard Windows installer with Start Menu shortcut |
+| `PP-MD-<version>-x64-portable.exe` | Self-contained single executable — no installation required |
+| `PP-MD-<version>-x64-installer.exe` | Standard Windows installer with Start Menu shortcut |
 
 Both require **Windows 10/11 x64**.
 
@@ -198,6 +198,9 @@ npm run build
 
 # Build and package both portable + installer into release_latest_* folders
 npm run desktop:build:latest
+
+# End-of-phase workflow: bump version, run full gate, and build release executables
+npm run phase:complete
 
 # Same but also mirror the unpacked runtime to release_latest/
 npm run desktop:build:latest -- -MirrorUnpacked

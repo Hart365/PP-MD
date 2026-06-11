@@ -1,3 +1,4 @@
+const https = require('node:https');
 const path = require('node:path');
 const { app, BrowserWindow, dialog, shell, ipcMain } = require('electron');
 
@@ -59,6 +60,82 @@ function getInstallationType() {
 }
 
 /**
+ * Fetch JSON from a URL with redirect support.
+ */
+function fetchJson(url, redirectCount = 0) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      url,
+      {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': `PP-MD/${app.getVersion()}`,
+        },
+      },
+      (res) => {
+        const statusCode = res.statusCode || 0;
+
+        if (statusCode >= 300 && statusCode < 400 && res.headers.location) {
+          res.resume();
+          if (redirectCount >= 5) {
+            reject(new Error('Too many redirects while contacting GitHub API'));
+            return;
+          }
+          resolve(fetchJson(res.headers.location, redirectCount + 1));
+          return;
+        }
+
+        if (statusCode < 200 || statusCode >= 300) {
+          res.resume();
+          reject(new Error(`GitHub API error: ${statusCode}`));
+          return;
+        }
+
+        let body = '';
+        res.setEncoding('utf8');
+
+        res.on('data', (chunk) => {
+          body += chunk;
+        });
+
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(body));
+          } catch {
+            reject(new Error('Invalid JSON received from GitHub API'));
+          }
+        });
+      },
+    );
+
+    req.setTimeout(15000, () => {
+      req.destroy(new Error('Timed out contacting GitHub API'));
+    });
+
+    req.on('error', (err) => {
+      reject(new Error(`Network error while contacting GitHub API: ${err.message}`));
+    });
+  });
+}
+
+async function fetchLatestReleaseFromGitHub() {
+  const release = await fetchJson('https://api.github.com/repos/Hart365/PP-MD/releases/latest');
+
+  return {
+    tag_name: release.tag_name,
+    html_url: release.html_url,
+    published_at: release.published_at,
+    assets: Array.isArray(release.assets)
+      ? release.assets.map((asset) => ({
+          name: asset.name,
+          browser_download_url: asset.browser_download_url,
+          size: asset.size,
+        }))
+      : [],
+  };
+}
+
+/**
  * Set up IPC handlers for app info
  */
 function setupIpcHandlers() {
@@ -69,6 +146,10 @@ function setupIpcHandlers() {
       architecture: getArchitectureName(),
       installType: getInstallationType(),
     };
+  });
+
+  ipcMain.handle('check-for-updates', async () => {
+    return fetchLatestReleaseFromGitHub();
   });
 }
 

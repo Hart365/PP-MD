@@ -3,7 +3,7 @@
  * @description Component for checking and displaying app updates.
  */
 
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useUpdateCheck } from '../../hooks/useUpdateCheck';
 import { formatFileSize } from '../../utils/versionUtils';
 import styles from './UpdateChecker.module.css';
@@ -13,7 +13,29 @@ import styles from './UpdateChecker.module.css';
  */
 export function UpdateChecker() {
   const [showDialog, setShowDialog] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const titleId = useId();
+  const statusId = useId();
   const { checking, result, error, checkForUpdates, dismiss } = useUpdateCheck();
+
+  useEffect(() => {
+    if (!showDialog) return;
+
+    closeButtonRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        dismiss();
+        setShowDialog(false);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [showDialog, dismiss]);
 
   const handleCheck = async () => {
     setShowDialog(true);
@@ -52,66 +74,81 @@ export function UpdateChecker() {
           <dialog
             className={styles.dialog}
             onClick={e => e.stopPropagation()}
+            aria-modal="true"
+            aria-labelledby={titleId}
+            aria-describedby={statusId}
             open
           >
             <div className={styles.dialogContent}>
-              <h2 className={styles.dialogTitle}>Check for Updates</h2>
+              <div className={styles.dialogHeader}>
+                <h2 id={titleId} className={styles.dialogTitle}>Check for Updates</h2>
+                <button
+                  ref={closeButtonRef}
+                  className={`${styles.button} ${styles.iconButton}`}
+                  onClick={handleDismiss}
+                  aria-label="Close update dialog"
+                >
+                  ×
+                </button>
+              </div>
 
-              {checking && (
-                <div className={styles.loading}>
-                  <div className={styles.spinner}></div>
-                  <p>Checking for updates...</p>
-                </div>
-              )}
-
-              {error && (
-                <div className={styles.error}>
-                  <p className={styles.errorTitle}>Error checking for updates</p>
-                  <p className={styles.errorMessage}>{error}</p>
-                </div>
-              )}
-
-              {result && !checking && (
-                <div className={styles.result}>
-                  <div className={styles.versionInfo}>
-                    <p>
-                      <strong>Current version:</strong> {result.currentVersion}
-                    </p>
-                    <p>
-                      <strong>Latest version:</strong> {result.latestVersion}
-                    </p>
-                    {result.releaseDate && (
-                      <p>
-                        <strong>Released:</strong>{' '}
-                        {new Date(result.releaseDate).toLocaleDateString()}
-                      </p>
-                    )}
+              <div id={statusId} aria-live="polite" aria-atomic="true">
+                {checking && (
+                  <div className={styles.loading}>
+                    <div className={styles.spinner}></div>
+                    <p>Checking for updates...</p>
                   </div>
+                )}
 
-                  {result.hasUpdate ? (
-                    <div className={styles.updateAvailable}>
-                      <div className={styles.updateBanner}>
-                        ✓ A new version is available!
-                      </div>
-                      {result.downloadAsset && (
-                        <div className={styles.downloadInfo}>
-                          <p>
-                            <strong>File:</strong> {result.downloadAsset.name}
-                          </p>
-                          <p>
-                            <strong>Size:</strong>{' '}
-                            {formatFileSize(result.downloadAsset.size)}
-                          </p>
-                        </div>
+                {error && (
+                  <div className={styles.error} role="alert">
+                    <p className={styles.errorTitle}>Error checking for updates</p>
+                    <p className={styles.errorMessage}>{error}</p>
+                  </div>
+                )}
+
+                {result && !checking && (
+                  <div className={styles.result}>
+                    <div className={styles.versionInfo}>
+                      <p>
+                        <strong>Current version:</strong> {result.currentVersion}
+                      </p>
+                      <p>
+                        <strong>Latest version:</strong> {result.latestVersion}
+                      </p>
+                      {result.releaseDate && (
+                        <p>
+                          <strong>Released:</strong>{' '}
+                          {new Date(result.releaseDate).toLocaleDateString()}
+                        </p>
                       )}
                     </div>
-                  ) : (
-                    <div className={styles.noUpdate}>
-                      <p>✓ You are already using the latest version!</p>
-                    </div>
-                  )}
-                </div>
-              )}
+
+                    {result.hasUpdate ? (
+                      <div className={styles.updateAvailable}>
+                        <div className={styles.updateBanner} role="status">
+                          A new version is available.
+                        </div>
+                        {result.downloadAsset && (
+                          <div className={styles.downloadInfo}>
+                            <p>
+                              <strong>File:</strong> {result.downloadAsset.name}
+                            </p>
+                            <p>
+                              <strong>Size:</strong>{' '}
+                              {formatFileSize(result.downloadAsset.size)}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className={styles.noUpdate} role="status">
+                        <p>You are already using the latest version.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {/* Dialog Buttons */}
               <div className={styles.dialogButtons}>

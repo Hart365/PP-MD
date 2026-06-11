@@ -7,6 +7,7 @@
  *
  * Mermaid diagram types used:
  *  - erDiagram          → Entity Relationship Diagram
+ *  - flowchart          → Process and component relationship diagrams
  */
 
 import type {
@@ -15,6 +16,12 @@ import type {
   ProcessDefinition,
   ProcessStep,
   AppDefinition,
+  AgentDefinition,
+  AIModelDefinition,
+  DesktopFlowDefinition,
+  DataflowDefinition,
+  CustomAPIDefinition,
+  OfflineProfileDefinition,
   WebResourceDefinition,
   PluginAssemblyDefinition,
   PluginStepDefinition,
@@ -26,14 +33,85 @@ import type {
   ReportDefinition,
   DashboardDefinition,
   OptionSetDefinition,
+  SolutionDependency,
+  SolutionComponentInventoryItem,
+  FormDefinition,
 } from '../types/solution';
 
 import { ProcessCategory, WebResourceType, AttributeType, AppType } from '../types/solution';
+import {
+  createMetadataGridSection,
+  createOutputSection,
+  createTableSection,
+  renderMarkdownDocument,
+  type OutputMetadataGridRow,
+  type OutputSection,
+} from './outputModel';
 
 export interface MarkdownGenerationOptions {
   erdMode?: 'compact' | 'detailed-relationships';
   documentContext?: DocumentContext;
+  documentationSettings?: DocumentationSettings;
 }
+
+export type DocumentationDetailLevel = 'summary' | 'detailed';
+
+export interface DocumentationScopeSettings {
+  flows: boolean;
+  apps: boolean;
+  security: boolean;
+  integration: boolean;
+  plugins: boolean;
+  reports: boolean;
+}
+
+export type AttributeSelectionMode =
+  | 'all'
+  | 'custom-only'
+  | 'attributes-on-form'
+  | 'attributes-not-on-form'
+  | 'option-set-focused'
+  | 'manually-selected'
+  | 'unmanaged-only';
+
+export interface DocumentationMetadataSettings {
+  includeAuditInfo: boolean;
+  includeFieldSecurityFlags: boolean;
+  includeRequiredLevelInfo: boolean;
+  includeValidForAdvancedFindInfo: boolean;
+  includeMetadataDiagnosticInfo: boolean;
+  excludeVirtualAttributes: boolean;
+  attributeSelectionMode: AttributeSelectionMode;
+  manuallySelectedAttributes: string[];
+}
+
+export interface DocumentationSettings {
+  detailLevel: DocumentationDetailLevel;
+  scope: DocumentationScopeSettings;
+  metadata: DocumentationMetadataSettings;
+}
+
+export const DEFAULT_DOCUMENTATION_SETTINGS: DocumentationSettings = {
+  detailLevel: 'detailed',
+  scope: {
+    flows: true,
+    apps: true,
+    security: true,
+    integration: true,
+    plugins: true,
+    reports: true,
+  },
+  metadata: {
+    includeAuditInfo: true,
+    includeFieldSecurityFlags: true,
+    includeRequiredLevelInfo: true,
+    includeValidForAdvancedFindInfo: true,
+    includeMetadataDiagnosticInfo: false,
+    excludeVirtualAttributes: false,
+    attributeSelectionMode: 'all',
+    manuallySelectedAttributes: [],
+  },
+};
 
 export interface DocumentContext {
   client: string;
@@ -264,7 +342,70 @@ function appTitle(app: AppDefinition): string {
 }
 
 function uniqueStrings(values: Array<string | undefined | null>): string[] {
-  return Array.from(new Set(values.filter((value): value is string => !!value && value.trim().length > 0)));
+  const byLower = new Map<string, string>();
+  values
+    .filter((value): value is string => !!value && value.trim().length > 0)
+    .forEach((value) => {
+      const normalized = value.trim();
+      const key = normalized.toLowerCase();
+      if (!byLower.has(key)) byLower.set(key, normalized);
+    });
+  return Array.from(byLower.values());
+}
+
+function normalizeDocumentationSettings(settings: DocumentationSettings | undefined): DocumentationSettings {
+  const isValidSelectionMode = (mode: string | undefined): mode is AttributeSelectionMode => {
+    return [
+      'all',
+      'custom-only',
+      'attributes-on-form',
+      'attributes-not-on-form',
+      'option-set-focused',
+      'manually-selected',
+      'unmanaged-only',
+    ].includes(mode ?? '');
+  };
+
+  const manualAttributes = (settings?.metadata?.manuallySelectedAttributes ?? [])
+    .filter((name): name is string => typeof name === 'string')
+    .map((name) => name.trim().toLowerCase())
+    .filter((name, idx, all) => name.length > 0 && all.indexOf(name) === idx);
+
+  return {
+    detailLevel: settings?.detailLevel === 'summary' ? 'summary' : 'detailed',
+    scope: {
+      flows: settings?.scope?.flows ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.flows,
+      apps: settings?.scope?.apps ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.apps,
+      security: settings?.scope?.security ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.security,
+      integration: settings?.scope?.integration ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.integration,
+      plugins: settings?.scope?.plugins ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.plugins,
+      reports: settings?.scope?.reports ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.reports,
+    },
+    metadata: {
+      includeAuditInfo: settings?.metadata?.includeAuditInfo ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeAuditInfo,
+      includeFieldSecurityFlags: settings?.metadata?.includeFieldSecurityFlags ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeFieldSecurityFlags,
+      includeRequiredLevelInfo: settings?.metadata?.includeRequiredLevelInfo ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeRequiredLevelInfo,
+      includeValidForAdvancedFindInfo:
+        settings?.metadata?.includeValidForAdvancedFindInfo ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeValidForAdvancedFindInfo,
+      includeMetadataDiagnosticInfo:
+        settings?.metadata?.includeMetadataDiagnosticInfo ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeMetadataDiagnosticInfo,
+      excludeVirtualAttributes: settings?.metadata?.excludeVirtualAttributes ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.excludeVirtualAttributes,
+      attributeSelectionMode: isValidSelectionMode(settings?.metadata?.attributeSelectionMode)
+        ? settings.metadata.attributeSelectionMode
+        : DEFAULT_DOCUMENTATION_SETTINGS.metadata.attributeSelectionMode,
+      manuallySelectedAttributes: manualAttributes,
+    },
+  };
+}
+
+function maxDefinedNumber(...values: Array<number | undefined>): number | undefined {
+  const max = Math.max(...values.map((value) => value ?? 0));
+  return max > 0 ? max : undefined;
+}
+
+function tableBulletedList(values: string[]): string {
+  if (values.length === 0) return '–';
+  return values.map((value) => `- ${mdEscape(value)}`).join('<br>');
 }
 
 function mergeByKey<T>(items: T[], keyFn: (item: T) => string, mergeFn: (current: T, incoming: T) => T): T[] {
@@ -353,53 +494,6 @@ function isDocumentedApp(app: AppDefinition): boolean {
   return [AppType.ModelDriven, AppType.Canvas, AppType.CustomPage, AppType.CodeApp, AppType.AIPlugin].includes(app.appType);
 }
 
-/**
- * Appends a Back to Top link at the end of each level-2 section.
- *
- * The link targets the generated Table of Contents heading anchor.
- */
-function appendBackToTopLinks(markdown: string): string {
-  const lines = markdown.split('\n');
-  const sectionStarts: number[] = [];
-  let inCodeFence = false;
-
-  lines.forEach((line, index) => {
-    if (line.startsWith('```')) {
-      inCodeFence = !inCodeFence;
-      return;
-    }
-    if (!inCodeFence && /^##\s+/.test(line)) {
-      sectionStarts.push(index);
-    }
-  });
-
-  const inserts: Array<{ index: number }> = [];
-
-  sectionStarts.forEach((start, idx) => {
-    const title = lines[start].replace(/^##\s+/, '').trim();
-    if (title.toLowerCase() === 'table of contents') return;
-
-    const nextStart = idx < sectionStarts.length - 1 ? sectionStarts[idx + 1] : lines.length;
-    const sectionText = lines.slice(start, nextStart).join('\n');
-    if (sectionText.includes('[Back to Top](#table-of-contents)')) return;
-
-    let insertAt = nextStart;
-    while (insertAt > start + 1 && lines[insertAt - 1].trim() === '') {
-      insertAt -= 1;
-    }
-
-    inserts.push({ index: insertAt });
-  });
-
-  inserts
-    .sort((a, b) => b.index - a.index)
-    .forEach(({ index }) => {
-      lines.splice(index, 0, '', '[Back to Top](#table-of-contents)', '');
-    });
-
-  return lines.join('\n');
-}
-
 export function consolidateSolutions(solutions: ParsedSolution[]): ParsedSolution {
   const items = solutions.filter((solution) => !!solution.metadata.uniqueName);
 
@@ -460,9 +554,117 @@ export function consolidateSolutions(solutions: ParsedSolution[]): ParsedSolutio
       displayName: stripTrailingGuid(current.displayName || incoming.displayName || current.name || incoming.name),
       entities: uniqueStrings([...(current.entities ?? []), ...(incoming.entities ?? [])]),
       sitemapAreas: uniqueStrings([...(current.sitemapAreas ?? []), ...(incoming.sitemapAreas ?? [])]),
+      siteMap: (current.siteMap?.length ?? 0) >= (incoming.siteMap?.length ?? 0) ? current.siteMap : incoming.siteMap,
+      siteMapSettings: {
+        showHome: current.siteMapSettings?.showHome ?? incoming.siteMapSettings?.showHome,
+        showPinned: current.siteMapSettings?.showPinned ?? incoming.siteMapSettings?.showPinned,
+        showRecents: current.siteMapSettings?.showRecents ?? incoming.siteMapSettings?.showRecents,
+        enableCollapsibleGroups: current.siteMapSettings?.enableCollapsibleGroups ?? incoming.siteMapSettings?.enableCollapsibleGroups,
+      },
+      canvasInsights: {
+        screenCount: maxDefinedNumber(current.canvasInsights?.screenCount, incoming.canvasInsights?.screenCount),
+        controlCount: maxDefinedNumber(current.canvasInsights?.controlCount, incoming.canvasInsights?.controlCount),
+        dataSourceCount: maxDefinedNumber(current.canvasInsights?.dataSourceCount, incoming.canvasInsights?.dataSourceCount),
+        variableCount: maxDefinedNumber(current.canvasInsights?.variableCount, incoming.canvasInsights?.variableCount),
+        resourceCount: maxDefinedNumber(current.canvasInsights?.resourceCount, incoming.canvasInsights?.resourceCount),
+        screenNames: uniqueStrings([...(current.canvasInsights?.screenNames ?? []), ...(incoming.canvasInsights?.screenNames ?? [])]),
+        dataSources: uniqueStrings([...(current.canvasInsights?.dataSources ?? []), ...(incoming.canvasInsights?.dataSources ?? [])]),
+        variables: uniqueStrings([...(current.canvasInsights?.variables ?? []), ...(incoming.canvasInsights?.variables ?? [])]),
+        resources: uniqueStrings([...(current.canvasInsights?.resources ?? []), ...(incoming.canvasInsights?.resources ?? [])]),
+        screens: (() => {
+          const map = new Map<string, Set<string>>();
+          [...(current.canvasInsights?.screens ?? []), ...(incoming.canvasInsights?.screens ?? [])].forEach((screen) => {
+            if (!map.has(screen.name)) map.set(screen.name, new Set<string>());
+            screen.controls.forEach((control) => map.get(screen.name)!.add(control));
+          });
+          return Array.from(map.entries()).map(([name, controls]) => ({ name, controls: Array.from(controls).sort((a, b) => a.localeCompare(b)) }));
+        })(),
+        navigation: (() => {
+          const set = new Set<string>();
+          [...(current.canvasInsights?.navigation ?? []), ...(incoming.canvasInsights?.navigation ?? [])].forEach((link) => {
+            set.add(`${link.from}|${link.to}`);
+          });
+          return Array.from(set).map((item) => {
+            const [from, to] = item.split('|');
+            return { from, to };
+          });
+        })(),
+      },
       connectors: uniqueStrings([...(current.connectors ?? []), ...(incoming.connectors ?? [])]),
       isEnabled: current.isEnabled !== false || incoming.isEnabled !== false,
       version: current.version || incoming.version,
+    }),
+  );
+
+  const agents = mergeByKey(
+    items.flatMap((solution) => solution.agents ?? []),
+    (agent) => agent.sourcePath.toLowerCase(),
+    (current, incoming) => ({
+      ...current,
+      displayName: current.displayName || incoming.displayName,
+      agentType: current.agentType || incoming.agentType,
+      language: current.language || incoming.language,
+      trigger: current.trigger || incoming.trigger,
+      connectors: uniqueStrings([...(current.connectors ?? []), ...(incoming.connectors ?? [])]),
+    }),
+  );
+
+  const aiModels = mergeByKey(
+    items.flatMap((solution) => solution.aiModels ?? []),
+    (model) => model.sourcePath.toLowerCase(),
+    (current, incoming) => ({
+      ...current,
+      displayName: current.displayName || incoming.displayName,
+      modelType: current.modelType || incoming.modelType,
+      provider: current.provider || incoming.provider,
+      version: current.version || incoming.version,
+      endpoint: current.endpoint || incoming.endpoint,
+    }),
+  );
+
+  const desktopFlows = mergeByKey(
+    items.flatMap((solution) => solution.desktopFlows ?? []),
+    (flow) => flow.sourcePath.toLowerCase(),
+    (current, incoming) => ({
+      ...current,
+      displayName: current.displayName || incoming.displayName,
+      folder: current.folder || incoming.folder,
+      isEnabled: current.isEnabled ?? incoming.isEnabled,
+      stepCount: current.stepCount ?? incoming.stepCount,
+      connectors: uniqueStrings([...(current.connectors ?? []), ...(incoming.connectors ?? [])]),
+    }),
+  );
+
+  const dataflows = mergeByKey(
+    items.flatMap((solution) => solution.dataflows ?? []),
+    (flow) => flow.sourcePath.toLowerCase(),
+    (current, incoming) => ({
+      ...current,
+      displayName: current.displayName || incoming.displayName,
+      connectors: uniqueStrings([...(current.connectors ?? []), ...(incoming.connectors ?? [])]),
+      refreshMode: current.refreshMode || incoming.refreshMode,
+    }),
+  );
+
+  const customApis = mergeByKey(
+    items.flatMap((solution) => solution.customApis ?? []),
+    (api) => api.sourcePath.toLowerCase(),
+    (current, incoming) => ({
+      ...current,
+      displayName: current.displayName || incoming.displayName,
+      boundEntityLogicalName: current.boundEntityLogicalName || incoming.boundEntityLogicalName,
+      isFunction: current.isFunction ?? incoming.isFunction,
+    }),
+  );
+
+  const offlineProfiles = mergeByKey(
+    items.flatMap((solution) => solution.offlineProfiles ?? []),
+    (profile) => profile.sourcePath.toLowerCase(),
+    (current, incoming) => ({
+      ...current,
+      displayName: current.displayName || incoming.displayName,
+      profileType: current.profileType || incoming.profileType,
+      entities: uniqueStrings([...(current.entities ?? []), ...(incoming.entities ?? [])]),
     }),
   );
 
@@ -483,6 +685,8 @@ export function consolidateSolutions(solutions: ParsedSolution[]): ParsedSolutio
       version: new Date().toISOString().slice(0, 10),
       publisherName: 'Multiple Publishers',
       isManaged: false,
+      dependencies: [],
+      componentInventory: [],
     },
     entities,
     optionSets,
@@ -490,6 +694,12 @@ export function consolidateSolutions(solutions: ParsedSolution[]): ParsedSolutio
     views,
     processes,
     apps,
+    agents,
+    aiModels,
+    desktopFlows,
+    dataflows,
+    customApis,
+    offlineProfiles,
     webResources,
     securityRoles,
     fieldSecurityProfiles,
@@ -518,6 +728,12 @@ function erEntityId(name: string): string {
   const sanitized = name.replace(/[^a-zA-Z0-9_]/g, '_');
   if (!sanitized) return 'entity_unknown';
   return /^\d/.test(sanitized) ? `entity_${sanitized}` : sanitized;
+}
+
+function flowchartNodeId(name: string): string {
+  const sanitized = name.replace(/[^a-zA-Z0-9_]/g, '_');
+  if (!sanitized) return 'node_unknown';
+  return /^\d/.test(sanitized) ? `node_${sanitized}` : sanitized;
 }
 
 function hasDocumentContext(context: DocumentContext | undefined): boolean {
@@ -572,7 +788,7 @@ function generateHeader(solution: ParsedSolution, documentContext?: DocumentCont
   lines.push(
     heading(1, `Power Platform Solution: ${metadata.displayName}`),
     '',
-    `> **Generated by PP-MD** — Power Platform Documentation Generator`,
+    `> **Generated by PP-MD** — Power Platform Solution Documentation`,
     `> Generated on: ${new Date().toLocaleString()}`,
     '',
     heading(2, 'Solution Overview'),
@@ -581,6 +797,17 @@ function generateHeader(solution: ParsedSolution, documentContext?: DocumentCont
     `- **Display Name:** ${mdEscape(metadata.displayName)}`,
     `- **Version:** ${mdEscape(metadata.version)}`,
     `- **Publisher:** ${mdEscape(metadata.publisherName)}`,
+  );
+
+  if (metadata.publisherPrefix) {
+    lines.push(`- **Publisher Prefix:** ${mdEscape(metadata.publisherPrefix)}`);
+  }
+
+  if (metadata.solutionPrefix) {
+    lines.push(`- **Solution Prefix:** ${mdEscape(metadata.solutionPrefix)}`);
+  }
+
+  lines.push(
     `- **Type:** ${metadata.isManaged ? 'Managed' : 'Unmanaged'}`,
   );
 
@@ -590,6 +817,131 @@ function generateHeader(solution: ParsedSolution, documentContext?: DocumentCont
 
   lines.push('');
   return lines.join('\n');
+}
+
+type ComponentGraphEdge = {
+  from: string;
+  to: string;
+  relation: string;
+};
+
+type ComponentGraphData = {
+  nodes: Map<string, string>;
+  edges: ComponentGraphEdge[];
+};
+
+function graphLabel(displayName: string | undefined | null, schemaName: string | undefined | null): string {
+  const display = stripTrailingGuid(displayName).trim();
+  const schema = stripTrailingGuid(schemaName).trim();
+
+  if (display && schema && display.toLowerCase() !== schema.toLowerCase()) {
+    return `${display} - ${schema}`;
+  }
+
+  return display || schema || 'Unknown';
+}
+
+function entityGraphLabel(logicalName: string, entityMap: Map<string, string>): string {
+  const display = entityMap.get(logicalName.toLowerCase());
+  return stripTrailingGuid(display || logicalName).trim() || logicalName;
+}
+
+function collectComponentGraphData(solution: ParsedSolution, entityMap: Map<string, string>): ComponentGraphData {
+  const nodes = new Map<string, string>();
+  const edges: ComponentGraphEdge[] = [];
+  const emittedEdges = new Set<string>();
+
+  const nodeIdFor = (kind: string, rawName: string): string => flowchartNodeId(`${kind}_${rawName}`);
+  const ensureNode = (kind: string, rawName: string, label: string): string => {
+    const id = nodeIdFor(kind, rawName);
+    if (!nodes.has(id)) {
+      nodes.set(id, label);
+    }
+    return id;
+  };
+
+  const addEdge = (from: string, to: string, relation: string) => {
+    const key = `${from}|${to}|${relation}`;
+    if (emittedEdges.has(key)) return;
+    emittedEdges.add(key);
+    edges.push({ from, to, relation });
+  };
+
+  sortByLabel(solution.forms, (form) => form.displayName || form.name).forEach((form) => {
+    const formNode = ensureNode('form', `${form.entityLogicalName}_${form.name}`, graphLabel(form.displayName || form.name, undefined));
+    const entityNode = ensureNode('entity', form.entityLogicalName, entityGraphLabel(form.entityLogicalName, entityMap));
+    addEdge(formNode, entityNode, 'binds');
+  });
+
+  sortByLabel(solution.views, (view) => view.displayName || view.name).forEach((view) => {
+    const viewNode = ensureNode('view', `${view.entityLogicalName}_${view.name}`, graphLabel(view.displayName || view.name, undefined));
+    const entityNode = ensureNode('entity', view.entityLogicalName, entityGraphLabel(view.entityLogicalName, entityMap));
+    addEdge(viewNode, entityNode, 'queries');
+  });
+
+  sortByLabel(solution.processes, (process) => processTitle(process)).forEach((process) => {
+    const processNode = ensureNode('process', process.uniqueName || process.name, graphLabel(process.displayName || process.name, process.uniqueName));
+
+    uniqueStrings([process.primaryEntity, ...(process.relatedEntities ?? [])].filter(Boolean) as string[])
+      .forEach((table) => {
+        const tableNode = ensureNode('entity', table, entityGraphLabel(table, entityMap));
+        addEdge(processNode, tableNode, 'uses');
+      });
+
+    sortByLabel(process.flowConnectionReferences ?? [], (ref) => ref).forEach((ref) => {
+      const refNode = ensureNode('connection', ref, graphLabel('Connection Ref', ref));
+      addEdge(processNode, refNode, 'connects');
+    });
+
+    sortByLabel(process.flowEnvironmentVariables ?? [], (env) => env).forEach((env) => {
+      const envNode = ensureNode('environment', env, graphLabel('Environment Var', env));
+      addEdge(processNode, envNode, 'reads');
+    });
+  });
+
+  sortByLabel(solution.apps.filter(isDocumentedApp), (app) => appTitle(app)).forEach((app) => {
+    const appNode = ensureNode('app', app.uniqueName, graphLabel(app.displayName || app.name, app.uniqueName));
+    sortByLabel(app.entities ?? [], (entity) => entity).forEach((entity) => {
+      const entityNode = ensureNode('entity', entity, entityGraphLabel(entity, entityMap));
+      addEdge(appNode, entityNode, 'surfaces');
+    });
+  });
+
+  sortByLabel(solution.pluginAssemblies, (assembly) => assembly.name).forEach((assembly) => {
+    sortByLabel(assembly.steps ?? [], (step) => step.name).forEach((step) => {
+      if (!step.primaryEntity) return;
+      const stepNode = ensureNode('plugin-step', `${assembly.name}_${step.name}`, graphLabel(step.name, assembly.name));
+      const entityNode = ensureNode('entity', step.primaryEntity, entityGraphLabel(step.primaryEntity, entityMap));
+      addEdge(stepNode, entityNode, 'executes');
+    });
+  });
+
+  sortByLabel(solution.reports, (report) => report.displayName || report.name).forEach((report) => {
+    const relatedEntities = uniqueStrings(report.relatedEntities ?? []);
+    if (relatedEntities.length === 0) return;
+    const reportNode = ensureNode('report', report.name, graphLabel(report.displayName || report.name, report.fileName));
+    relatedEntities.forEach((relatedEntity) => {
+      const entityNode = ensureNode('entity', relatedEntity, entityGraphLabel(relatedEntity, entityMap));
+      addEdge(reportNode, entityNode, 'reports');
+    });
+  });
+
+  sortByLabel(solution.dashboards, (dashboard) => dashboard.displayName || dashboard.name).forEach((dashboard) => {
+    if (!dashboard.entityLogicalName) return;
+    const dashboardNode = ensureNode('dashboard', dashboard.name, graphLabel(dashboard.displayName || dashboard.name, dashboard.dashboardType));
+    const entityNode = ensureNode('entity', dashboard.entityLogicalName, entityGraphLabel(dashboard.entityLogicalName, entityMap));
+    addEdge(dashboardNode, entityNode, 'visualizes');
+  });
+
+  return {
+    nodes,
+    edges: [...edges].sort((a, b) => `${a.from}|${a.to}|${a.relation}`.localeCompare(`${b.from}|${b.to}|${b.relation}`)),
+  };
+}
+
+function componentRelationshipEdgeCount(solution: ParsedSolution): number {
+  const entityMap = buildEntityDisplayMap(solution.entities);
+  return collectComponentGraphData(solution, entityMap).edges.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -602,35 +954,172 @@ function generateHeader(solution: ParsedSolution, documentContext?: DocumentCont
  * @param solution - Parsed solution data
  * @returns Markdown ToC string
  */
-function generateTableOfContents(solution: ParsedSolution): string {
+function generateTableOfContents(solution: ParsedSolution, settings: DocumentationSettings): string {
   const lines: string[] = [heading(2, 'Table of Contents'), ''];
   const documentedApps = solution.apps.filter(isDocumentedApp);
+  const includeDetailedSections = settings.detailLevel === 'detailed';
 
   const sections: Array<{ label: string; count: number }> = [
-    { label: 'Entity Relationship Diagram',    count: solution.entities.length },
-    { label: 'Tables & Columns',               count: solution.entities.length },
-    { label: 'Global Option Sets',             count: solution.optionSets.length },
-    { label: 'Forms & Views',                  count: solution.forms.length + solution.views.length },
-    { label: 'Processes & Automation',         count: solution.processes.length },
-    { label: 'Power Apps',                     count: documentedApps.length },
-    { label: 'Web Resources',                  count: solution.webResources.length },
-    { label: 'Security Roles',                 count: solution.securityRoles.length },
-    { label: 'Column Level Security Profiles', count: solution.fieldSecurityProfiles.length },
-    { label: 'Connection References',          count: solution.connectionReferences.length },
-    { label: 'Environment Variables',          count: solution.environmentVariables.length },
-    { label: 'Email Templates',                count: solution.emailTemplates.length },
-    { label: 'Reports & Dashboards',           count: solution.reports.length + solution.dashboards.length },
-    { label: 'Plugin Assemblies & Steps',      count: solution.pluginAssemblies.length },
+    { label: 'Solution Dependencies',          count: solution.metadata.dependencies.length },
+    { label: 'Solution Component Inventory',   count: solution.metadata.componentInventory.length },
+    { label: 'Solution Component Relationship Graph', count: includeDetailedSections ? componentRelationshipEdgeCount(solution) : 0 },
+    { label: 'Entity Relationship Diagram',    count: includeDetailedSections ? solution.entities.length : 0 },
+    { label: 'Tables & Columns',               count: includeDetailedSections ? solution.entities.length : 0 },
+    { label: 'Global Option Sets',             count: includeDetailedSections ? solution.optionSets.length : 0 },
+    { label: 'Forms & Views',                  count: includeDetailedSections ? solution.forms.length + solution.views.length : 0 },
+    { label: 'Processes & Automation',         count: settings.scope.flows ? solution.processes.length : 0 },
+    { label: 'Power Apps',                     count: settings.scope.apps ? documentedApps.length : 0 },
+    { label: 'Copilot Studio Agents',          count: includeDetailedSections ? solution.agents.length : 0 },
+    { label: 'AI Models',                      count: includeDetailedSections ? solution.aiModels.length : 0 },
+    { label: 'Desktop Flows',                  count: includeDetailedSections ? solution.desktopFlows.length : 0 },
+    { label: 'Dataflows',                      count: includeDetailedSections ? (solution.dataflows?.length ?? 0) : 0 },
+    { label: 'Custom APIs',                    count: includeDetailedSections ? (solution.customApis?.length ?? 0) : 0 },
+    { label: 'Offline Profiles',               count: includeDetailedSections ? (solution.offlineProfiles?.length ?? 0) : 0 },
+    { label: 'Web Resources',                  count: includeDetailedSections ? solution.webResources.length : 0 },
+    { label: 'Security Roles',                 count: settings.scope.security ? solution.securityRoles.length : 0 },
+    { label: 'Column Level Security Profiles', count: settings.scope.security ? solution.fieldSecurityProfiles.length : 0 },
+    { label: 'Connection References',          count: settings.scope.integration ? solution.connectionReferences.length : 0 },
+    { label: 'Environment Variables',          count: settings.scope.integration ? solution.environmentVariables.length : 0 },
+    { label: 'Email Templates',                count: settings.scope.integration ? solution.emailTemplates.length : 0 },
+    { label: 'Reports & Dashboards',           count: settings.scope.reports ? solution.reports.length + solution.dashboards.length : 0 },
+    { label: 'Plugin Assemblies & Steps',      count: settings.scope.plugins ? solution.pluginAssemblies.length : 0 },
   ];
 
   sections.forEach(({ label, count }) => {
     if (count > 0) {
-      lines.push(`- [${label}](${headingAnchor(label)}) _(${count})_`);
+      lines.push(`- [${label}](${headingAnchor(label)})`);
     }
   });
 
   lines.push('');
   return lines.join('\n');
+}
+
+function generateComponentInventorySection(inventory: SolutionComponentInventoryItem[]): string {
+  if (inventory.length === 0) return '';
+
+  const documentedTypes = new Set([
+    'Entity',
+    'Attribute',
+    'Relationship',
+    'OptionSet',
+    'Form',
+    'SavedQuery',
+    'SystemForm',
+    'Workflow',
+    'PowerAutomateFlow',
+    'AppModule',
+    'CanvasApp',
+    'Dataflow',
+    'CustomAPI',
+    'MobileOfflineProfile',
+    'WebResource',
+    'Role',
+    'FieldSecurityProfile',
+    'ConnectionReference',
+    'EnvironmentVariableDefinition',
+    'EnvironmentVariableValue',
+    'Report',
+    'Dashboard',
+    'PluginAssembly',
+    'PluginStep',
+    'SdkMessageProcessingStep',
+  ]);
+
+  return renderMarkdownDocument([
+    createTableSection({
+      id: 'solution-component-inventory',
+      title: 'Solution Component Inventory',
+      headers: ['Component Type', 'Count', 'Covered in PP-MD'],
+      rows: sortByLabel(inventory, (item) => item.componentType).map((item) => {
+        const covered = documentedTypes.has(item.componentType) ? '✅' : '⚠️ Summary only';
+        return [mdEscape(item.componentType), String(item.count), covered];
+      }),
+    }),
+  ]);
+}
+
+function generateComponentRelationshipGraphSection(solution: ParsedSolution, entityMap: Map<string, string>): string {
+  const graph = collectComponentGraphData(solution, entityMap);
+  if (graph.edges.length === 0) return '';
+
+  const lines: string[] = [
+    heading(2, 'Solution Component Relationship Graph'),
+    '',
+    '> Component dependencies across forms, views, processes, apps, plugins, and reporting artifacts.',
+    '',
+  ];
+
+  const buildDiagram = (edges: ComponentGraphEdge[]): string => {
+    const nodeIds = Array.from(new Set(edges.flatMap((edge) => [edge.from, edge.to]))).sort();
+    const diagramLines: string[] = ['flowchart LR'];
+
+    nodeIds.forEach((nodeId) => {
+      const label = graph.nodes.get(nodeId) ?? nodeId;
+      diagramLines.push(`  ${nodeId}["${mermaidLabel(label)}"]`);
+    });
+
+    edges.forEach((edge) => {
+      diagramLines.push(`  ${edge.from} -->|${mermaidLabel(edge.relation)}| ${edge.to}`);
+    });
+
+    return diagramLines.join('\n');
+  };
+
+  const MAX_EDGES_PER_DIAGRAM = 80;
+  if (graph.edges.length <= MAX_EDGES_PER_DIAGRAM) {
+    lines.push(mermaidBlock(buildDiagram(graph.edges), 'Solution Component Relationship Graph'));
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  lines.push(`> Large dependency graph detected (${graph.edges.length} relationships). Diagram is split for readability.`);
+  lines.push('');
+
+  const chunks: ComponentGraphEdge[][] = [];
+  for (let i = 0; i < graph.edges.length; i += MAX_EDGES_PER_DIAGRAM) {
+    chunks.push(graph.edges.slice(i, i + MAX_EDGES_PER_DIAGRAM));
+  }
+
+  chunks.forEach((chunk, index) => {
+    lines.push(heading(3, `Component Relationship Map (Part ${index + 1})`));
+    lines.push('');
+    lines.push(mermaidBlock(buildDiagram(chunk), `Component Relationship Graph Part ${index + 1}`));
+    lines.push('');
+  });
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Solution Dependencies
+// ---------------------------------------------------------------------------
+
+/**
+ * Documents all solution dependencies required by this solution.
+ *
+ * @param dependencies - Array of solution dependencies
+ * @returns Markdown string
+ */
+function generateDependenciesSection(dependencies: SolutionDependency[]): string {
+  if (dependencies.length === 0) return '';
+
+  return renderMarkdownDocument([
+    createTableSection({
+      id: 'solution-dependencies',
+      title: 'Solution Dependencies',
+      introMarkdown:
+        '> This solution depends on the following solutions. ' +
+        'These must be imported first to ensure all dependencies are satisfied.',
+      headers: ['Solution Name', 'Display Name', 'Version', 'Internal'],
+      rows: sortByLabel(dependencies, (dep) => dep.displayName || dep.solutionName).map((dep) => [
+        `\`${mdEscape(dep.solutionName)}\``,
+        mdEscape(dep.displayName || dep.solutionName),
+        dep.version || '–',
+        dep.isInternal ? '✅' : '',
+      ]),
+    }),
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -854,13 +1343,58 @@ function generateEntitiesSection(
   entities: EntityDefinition[],
   optionSets: OptionSetDefinition[],
   entityMap: Map<string, string>,
+  forms: FormDefinition[],
+  fieldSecurityProfiles: FieldSecurityProfileDefinition[],
+  settings: DocumentationSettings,
 ): string {
   if (entities.length === 0) return '';
 
   const lines: string[] = [heading(2, 'Tables & Columns'), ''];
+  const metadataSettings = settings.metadata;
+
+  const securedAttributeNames = new Set(
+    fieldSecurityProfiles
+      .flatMap((profile) => profile.permissions)
+      .map((permission) => permission.attributeName.toLowerCase()),
+  );
+
+  const filterAttributesForEntity = (entity: EntityDefinition) => {
+    const formFieldNames = new Set(
+      forms
+        .filter((form) => form.entityLogicalName.toLowerCase() === entity.logicalName.toLowerCase())
+        .flatMap((form) => form.fields)
+        .map((field) => field.attributeName.toLowerCase()),
+    );
+
+    const withoutVirtual = metadataSettings.excludeVirtualAttributes
+      ? entity.attributes.filter((attr) => attr.type !== AttributeType.Virtual)
+      : entity.attributes;
+
+    switch (metadataSettings.attributeSelectionMode) {
+      case 'attributes-on-form':
+        return withoutVirtual.filter((attr) => formFieldNames.has(attr.name.toLowerCase()));
+      case 'attributes-not-on-form':
+        return withoutVirtual.filter((attr) => !formFieldNames.has(attr.name.toLowerCase()));
+      case 'custom-only':
+        return withoutVirtual.filter((attr) => attr.isCustom);
+      case 'option-set-focused':
+        return withoutVirtual.filter((attr) => attr.type === AttributeType.OptionSet || attr.type === AttributeType.MultiSelectOptionSet);
+      case 'manually-selected': {
+        const selected = new Set(metadataSettings.manuallySelectedAttributes);
+        return withoutVirtual.filter((attr) => selected.has(attr.name.toLowerCase()));
+      }
+      case 'unmanaged-only':
+        return withoutVirtual.filter((attr) => attr.isManaged === undefined ? attr.isCustom : !attr.isManaged);
+      case 'all':
+      default:
+        return withoutVirtual;
+    }
+  };
 
   sortByLabel(entities, (entity) => labelWithSchema(entity.displayName || entity.logicalName, entity.logicalName)).forEach((entity) => {
     const entityDisplayName = entity.displayName || entity.logicalName;
+    const selectedAttributes = filterAttributesForEntity(entity);
+
     lines.push(heading(3, `${entityDisplayName} (${entity.logicalName})`));
     lines.push('');
 
@@ -885,54 +1419,100 @@ function generateEntitiesSection(
     lines.push('');
 
     // Columns
-    if (entity.attributes.length > 0) {
+    if (selectedAttributes.length > 0) {
       lines.push(heading(4, 'Columns'));
       lines.push('');
 
-      // Determine which optional columns to show
-      const hasDescriptions = entity.attributes.some((a) => !!a.description);
-      const hasAuditInfo = entity.attributes.some((a) => a.isAuditEnabled !== undefined);
+      const hasDescriptions = selectedAttributes.some((a) => !!a.description);
+      const includeAuditInfo = metadataSettings.includeAuditInfo;
+      const includeRequiredInfo = metadataSettings.includeRequiredLevelInfo;
+      const includeFieldSecurityFlags = metadataSettings.includeFieldSecurityFlags;
+      const includeAdvancedFind = metadataSettings.includeValidForAdvancedFindInfo;
+      const includeMetadataDiagnostics = metadataSettings.includeMetadataDiagnosticInfo;
 
-      if (hasDescriptions && hasAuditInfo) {
-        lines.push('| Display Name | Schema Name | Type | Required | Custom | Audited | Notes | Description |');
-        lines.push('|--------------|-------------|------|----------|--------|---------|-------|-------------|');
-      } else if (hasDescriptions) {
-        lines.push('| Display Name | Schema Name | Type | Required | Custom | Notes | Description |');
-        lines.push('|--------------|-------------|------|----------|--------|-------|-------------|');
-      } else if (hasAuditInfo) {
-        lines.push('| Display Name | Schema Name | Type | Required | Custom | Audited | Notes |');
-        lines.push('|--------------|-------------|------|----------|--------|---------|-------|');
-      } else {
-        lines.push('| Display Name | Schema Name | Type | Required | Custom | Notes |');
-        lines.push('|--------------|-------------|------|----------|--------|-------|');
-      }
+      const headers = ['Display Name', 'Schema Name', 'Type'];
+      if (includeRequiredInfo) headers.push('Required');
+      headers.push('Custom');
+      if (includeAuditInfo) headers.push('Audited');
+      if (includeFieldSecurityFlags) headers.push('Field Security');
+      if (includeAdvancedFind) headers.push('Advanced Find');
+      if (includeMetadataDiagnostics) headers.push('Metadata Source');
+      headers.push('Notes');
+      if (hasDescriptions) headers.push('Description');
 
-      sortByLabel(entity.attributes, (attr) => labelWithSchema(attr.displayName || attr.name, attr.name)).forEach((attr) => {
+      lines.push(`| ${headers.join(' | ')} |`);
+      lines.push(`| ${headers.map(() => '---').join(' | ')} |`);
+
+      sortByLabel(selectedAttributes, (attr) => labelWithSchema(attr.displayName || attr.name, attr.name)).forEach((attr) => {
         const notes: string[] = [];
         if (attr.isPrimaryName) notes.push('🔑 Primary Name');
-        if (attr.lookupTarget) notes.push(`→ ${entityDisplayLabel(attr.lookupTarget, entityMap)}`);
+        if ((attr.lookupTargets?.length ?? 0) > 0) {
+          notes.push(`→ ${sortByLabel(attr.lookupTargets ?? [], (item) => item).map((target) => entityDisplayLabel(target, entityMap)).join(', ')}`);
+        } else if (attr.lookupTarget) {
+          notes.push(`→ ${entityDisplayLabel(attr.lookupTarget, entityMap)}`);
+        }
         if (attr.optionSetName) notes.push(`OptionSet: ${attr.optionSetName}`);
-        if (attr.maxLength)     notes.push(`Max: ${attr.maxLength}`);
-        if (attr.precision)     notes.push(`Precision: ${attr.precision}`);
+        if (attr.maxLength) notes.push(`Max Length: ${attr.maxLength}`);
+        if (attr.precision) notes.push(`Precision: ${attr.precision}`);
+        if (attr.minValue !== undefined) notes.push(`Min: ${attr.minValue}`);
+        if (attr.maxValue !== undefined) notes.push(`Max Value: ${attr.maxValue}`);
+        if (attr.format) notes.push(`Format: ${attr.format}`);
+        if (attr.defaultValue !== undefined && attr.defaultValue !== '') notes.push(`Default: ${attr.defaultValue}`);
 
-        let row = `| ${mdEscape(attr.displayName || attr.name)} ` +
-          `| \`${mdEscape(attr.name)}\` ` +
-          `| ${attr.type} ` +
-          `| ${attr.required ? '✅ Yes' : 'No'} ` +
-          `| ${attr.isCustom ? '✳️ Yes' : 'No'} `;
+        const rowCells: string[] = [
+          mdEscape(attr.displayName || attr.name),
+          `\`${mdEscape(attr.name)}\``,
+          attr.type,
+        ];
 
-        if (hasAuditInfo) {
-          row += `| ${attr.isAuditEnabled ? '🔍 Yes' : 'No'} `;
+        if (includeRequiredInfo) {
+          const requiredLevel = attr.requiredLevel ? ` (${attr.requiredLevel})` : '';
+          const isRequired = attr.required || ['required', 'systemrequired', 'applicationrequired'].includes((attr.requiredLevel || '').toLowerCase());
+          rowCells.push(`${isRequired ? '✅ Yes' : 'No'}${requiredLevel}`);
         }
 
-        row += `| ${mdEscape(notes.join(', '))} |`;
+        rowCells.push(attr.isCustom ? '✳️ Yes' : 'No');
 
+        if (includeAuditInfo) {
+          rowCells.push(attr.isAuditEnabled === undefined ? '–' : attr.isAuditEnabled ? '🔍 Yes' : 'No');
+        }
+
+        if (includeFieldSecurityFlags) {
+          const isSecured = attr.isSecured ?? securedAttributeNames.has(attr.name.toLowerCase());
+          rowCells.push(isSecured ? '🔐 Yes' : 'No');
+        }
+
+        if (includeAdvancedFind) {
+          rowCells.push(
+            attr.isValidForAdvancedFind === undefined
+              ? '–'
+              : attr.isValidForAdvancedFind
+                ? '✅ Yes'
+                : 'No',
+          );
+        }
+
+        if (includeMetadataDiagnostics) {
+          const diagParts: string[] = [];
+          if (attr.metadataSources?.isCustom) {
+            diagParts.push(`Custom<=${attr.metadataSources.isCustom}`);
+          }
+          if (attr.metadataSources?.isValidForAdvancedFind) {
+            diagParts.push(`AdvancedFind<=${attr.metadataSources.isValidForAdvancedFind}`);
+          }
+          rowCells.push(mdEscape(diagParts.join(', ')) || '–');
+        }
+
+        rowCells.push(mdEscape(notes.join(', ')));
         if (hasDescriptions) {
-          row += ` ${mdEscape(attr.description)} |`;
+          rowCells.push(mdEscape(attr.description));
         }
 
-        lines.push(row);
+        lines.push(`| ${rowCells.join(' | ')} |`);
       });
+      lines.push('');
+    } else {
+      lines.push('_No attributes matched the active attribute selection settings for this table._');
       lines.push('');
     }
 
@@ -969,7 +1549,7 @@ function generateEntitiesSection(
     }
 
     // Inline OptionSet options (for local optionsets)
-    const localOSAttrs = entity.attributes.filter(
+    const localOSAttrs = selectedAttributes.filter(
       (a) => (a.type === AttributeType.OptionSet || a.type === AttributeType.MultiSelectOptionSet) && a.options,
     );
     if (localOSAttrs.length > 0) {
@@ -978,17 +1558,17 @@ function generateEntitiesSection(
         if (!attr.options) return;
         lines.push(`**${attr.displayName || attr.name} (\`${attr.name}\`)**:`);
         lines.push('');
-        lines.push('| Label | Value | Color | Description |');
-        lines.push('|-------|-------|-------|-------------|');
+        lines.push('| Label | Value | Default | Color | Description |');
+        lines.push('|-------|-------|---------|-------|-------------|');
         sortByLabel(attr.options, (opt) => opt.label || String(opt.value)).forEach((opt) => {
-          lines.push(`| ${mdEscape(opt.label)} | ${opt.value} | ${mdEscape(opt.color)} | ${mdEscape(opt.description)} |`);
+          lines.push(`| ${mdEscape(opt.label)} | ${opt.value} | ${opt.isDefault ? '✅' : '–'} | ${mdEscape(opt.color)} | ${mdEscape(opt.description)} |`);
         });
         lines.push('');
       });
     }
 
     // Cross-reference global option sets used
-    const globalOSRefs = entity.attributes
+    const globalOSRefs = selectedAttributes
       .filter((a) => a.optionSetName)
       .map((a) => a.optionSetName as string);
     if (globalOSRefs.length > 0) {
@@ -998,10 +1578,10 @@ function generateEntitiesSection(
         sortByLabel(globalDefs, (os) => labelWithSchema(os.displayName || os.name, os.name)).forEach((os) => {
           lines.push(`**${os.displayName || os.name} (\`${os.name}\`)**:`);
           lines.push('');
-          lines.push('| Label | Value | Color | Description |');
-          lines.push('|-------|-------|-------|-------------|');
+          lines.push('| Label | Value | Default | Color | Description |');
+          lines.push('|-------|-------|---------|-------|-------------|');
           sortByLabel(os.options, (opt) => opt.label || String(opt.value)).forEach((opt) => {
-            lines.push(`| ${mdEscape(opt.label)} | ${opt.value} | ${mdEscape(opt.color)} | ${mdEscape(opt.description)} |`);
+            lines.push(`| ${mdEscape(opt.label)} | ${opt.value} | ${opt.isDefault ? '✅' : '–'} | ${mdEscape(opt.color)} | ${mdEscape(opt.description)} |`);
           });
           lines.push('');
         });
@@ -1036,10 +1616,10 @@ function generateOptionSetsSection(optionSets: OptionSetDefinition[]): string {
       lines.push(`> ${os.description}`);
       lines.push('');
     }
-    lines.push('| Label | Value | Color | Description |');
-    lines.push('|-------|-------|-------|-------------|');
+    lines.push('| Label | Value | Default | Color | Description |');
+    lines.push('|-------|-------|---------|-------|-------------|');
     sortByLabel(os.options, (opt) => opt.label || String(opt.value)).forEach((opt) => {
-      lines.push(`| ${mdEscape(opt.label || String(opt.value))} | ${opt.value} | ${mdEscape(opt.color)} | ${mdEscape(opt.description)} |`);
+      lines.push(`| ${mdEscape(opt.label || String(opt.value))} | ${opt.value} | ${opt.isDefault ? '✅' : '–'} | ${mdEscape(opt.color)} | ${mdEscape(opt.description)} |`);
     });
     lines.push('');
   });
@@ -1084,13 +1664,17 @@ function generateFormsViewsSection(solution: ParsedSolution, entityMap: Map<stri
       if (form.fields.length > 0) {
         lines.push(heading(4, `${form.displayName || form.name} (${entityDisplayLabel(form.entityLogicalName, entityMap)} — ${form.formType})`));
         lines.push('');
-        lines.push('| Field (attribute) | Label | Required |');
-        lines.push('|-------------------|-------|----------|');
+        lines.push('| Field (attribute) | Label | Required | Region | Tab | Section |');
+        lines.push('|-------------------|-------|----------|--------|-----|---------|');
         form.fields.forEach((f) => {
+          const region = f.location ? `${f.location[0].toUpperCase()}${f.location.slice(1)}` : 'Body';
           lines.push(
             `| \`${mdEscape(f.attributeName)}\` ` +
             `| ${mdEscape(f.label)} ` +
-            `| ${f.required ? '✅' : ''} |`,
+            `| ${f.required ? '✅' : ''} ` +
+            `| ${region} ` +
+            `| ${mdEscape(f.tabName)} ` +
+            `| ${mdEscape(f.sectionName)} |`,
           );
         });
         lines.push('');
@@ -1125,7 +1709,7 @@ function generateFormsViewsSection(solution: ParsedSolution, entityMap: Map<stri
 
 /**
  * Generates the Processes & Automation section with summary and detailed
- * step tables (no per-process Mermaid flow diagrams).
+ * step tables plus per-process Mermaid flow diagrams when step structure exists.
  *
  * @param processes - Array of process definitions
  * @returns Markdown string
@@ -1216,6 +1800,157 @@ function generateProcessesSection(
       lines.push('');
     }
 
+    const graphTargets = uniqueStrings([
+      proc.primaryEntity,
+      ...(proc.relatedEntities ?? []),
+      ...usedRefs,
+      ...usedEnvVars,
+    ].filter(Boolean) as string[]);
+
+    if (graphTargets.length > 0) {
+      const graphNodeId = flowchartNodeId(`process_${proc.uniqueName || proc.name}`);
+      const graphLines: string[] = [
+        'flowchart LR',
+        `  ${graphNodeId}["${mermaidLabel(graphLabel(proc.displayName || proc.name, proc.uniqueName))}"]`,
+      ];
+      const emittedNodes = new Set<string>([graphNodeId]);
+
+      const addTarget = (kind: 'entity' | 'reference' | 'variable', targetName: string, label: string) => {
+        const nodeId = flowchartNodeId(`${kind}_${targetName}`);
+        if (!emittedNodes.has(nodeId)) {
+          graphLines.push(`  ${nodeId}["${mermaidLabel(label)}"]`);
+          emittedNodes.add(nodeId);
+        }
+        graphLines.push(`  ${graphNodeId} --> ${nodeId}`);
+      };
+
+      uniqueStrings([proc.primaryEntity, ...(proc.relatedEntities ?? [])].filter(Boolean) as string[])
+        .sort((a, b) => entityDisplayLabel(a, entityMap).localeCompare(entityDisplayLabel(b, entityMap), undefined, { sensitivity: 'base' }))
+        .forEach((tableName) => {
+          addTarget('entity', tableName, entityGraphLabel(tableName, entityMap));
+        });
+
+      sortByLabel(usedRefs, (ref) => ref).forEach((ref) => {
+        addTarget('reference', ref, `Connection Reference: ${ref}`);
+      });
+
+      sortByLabel(usedEnvVars, (env) => env).forEach((env) => {
+        addTarget('variable', env, `Environment Variable: ${env}`);
+      });
+
+      lines.push(heading(4, 'Relationship Diagram'));
+      lines.push('');
+      lines.push('> This diagram shows the process and the solution components it depends on.');
+      lines.push('');
+      lines.push(mermaidBlock(graphLines.join('\n'), `Process dependencies for ${processTitle(proc)}`));
+      lines.push('');
+    }
+
+    if (proc.steps.length > 0) {
+      type ProcessFlowEdge = { from: string; to: string; relation?: string };
+      const processNodeId = flowchartNodeId(`process_flow_${proc.uniqueName || proc.name}`);
+      const nodeLabels = new Map<string, string>([[processNodeId, graphLabel(proc.displayName || proc.name, proc.uniqueName)]]);
+      const stepNodeIds: string[] = [];
+      const stepNodeSet = new Set<string>();
+      const entityNodeSet = new Set<string>();
+      const flowEdges: ProcessFlowEdge[] = [];
+      const emittedFlowEdges = new Set<string>();
+
+      const addEdge = (from: string, to: string, relation?: string) => {
+        const key = `${from}|${to}|${relation || ''}`;
+        if (emittedFlowEdges.has(key)) return;
+        emittedFlowEdges.add(key);
+        flowEdges.push({ from, to, relation });
+      };
+
+      const walkSteps = (steps: ProcessStep[], parentNodeId: string, pathPrefix: string) => {
+        steps.forEach((step, index) => {
+          const stepNodeId = flowchartNodeId(`step_${proc.uniqueName || proc.name}_${pathPrefix}_${index}_${step.id || step.name}`);
+          const stepLabel = graphLabel(step.name || step.stepType, step.stepType);
+
+          if (!nodeLabels.has(stepNodeId)) {
+            nodeLabels.set(stepNodeId, stepLabel);
+            stepNodeIds.push(stepNodeId);
+            stepNodeSet.add(stepNodeId);
+          }
+
+          addEdge(parentNodeId, stepNodeId, parentNodeId === processNodeId ? 'starts' : 'then');
+
+          sortByLabel(step.referencedEntities ?? [], (entity) => entity).forEach((entity) => {
+            const entityNodeId = flowchartNodeId(`step_entity_${entity}`);
+            if (!nodeLabels.has(entityNodeId)) {
+              nodeLabels.set(entityNodeId, entityGraphLabel(entity, entityMap));
+              entityNodeSet.add(entityNodeId);
+            }
+            addEdge(stepNodeId, entityNodeId, 'touches');
+          });
+
+          if (step.children && step.children.length > 0) {
+            walkSteps(step.children, stepNodeId, `${pathPrefix}_${index}`);
+          }
+        });
+      };
+
+      walkSteps(proc.steps, processNodeId, 'root');
+
+      const buildFlowDiagram = (includedSteps: Set<string>) => {
+        const includeNodes = new Set<string>([processNodeId, ...includedSteps]);
+        const includedEdges = flowEdges.filter((edge) => {
+          if (edge.from === processNodeId && includedSteps.has(edge.to)) return true;
+          if (includedSteps.has(edge.from) && includedSteps.has(edge.to)) return true;
+          if (includedSteps.has(edge.from) && entityNodeSet.has(edge.to)) {
+            includeNodes.add(edge.to);
+            return true;
+          }
+          return false;
+        });
+
+        const diagramLines: string[] = ['flowchart TD'];
+        diagramLines.push(`  ${processNodeId}["${mermaidLabel(nodeLabels.get(processNodeId))}"]`);
+
+        stepNodeIds.filter((nodeId) => includeNodes.has(nodeId)).forEach((nodeId) => {
+          diagramLines.push(`  ${nodeId}["${mermaidLabel(nodeLabels.get(nodeId))}"]`);
+        });
+
+        Array.from(entityNodeSet)
+          .filter((nodeId) => includeNodes.has(nodeId))
+          .sort()
+          .forEach((nodeId) => {
+            diagramLines.push(`  ${nodeId}["${mermaidLabel(nodeLabels.get(nodeId))}"]`);
+          });
+
+        includedEdges.forEach((edge) => {
+          if (edge.relation) {
+            diagramLines.push(`  ${edge.from} -->|${mermaidLabel(edge.relation)}| ${edge.to}`);
+          } else {
+            diagramLines.push(`  ${edge.from} --> ${edge.to}`);
+          }
+        });
+
+        return diagramLines.join('\n');
+      };
+
+      lines.push(heading(4, 'Process Flow Diagram'));
+      lines.push('');
+
+      const MAX_STEPS_PER_DIAGRAM = 45;
+      if (stepNodeIds.length <= MAX_STEPS_PER_DIAGRAM) {
+        lines.push(mermaidBlock(buildFlowDiagram(new Set(stepNodeIds)), `Process flow for ${processTitle(proc)}`));
+        lines.push('');
+      } else {
+        lines.push(`> Large process detected (${stepNodeIds.length} steps). Flow diagram is split for readability.`);
+        lines.push('');
+        for (let i = 0; i < stepNodeIds.length; i += MAX_STEPS_PER_DIAGRAM) {
+          const part = (i / MAX_STEPS_PER_DIAGRAM) + 1;
+          const chunk = new Set(stepNodeIds.slice(i, i + MAX_STEPS_PER_DIAGRAM));
+          lines.push(heading(5, `Flow Segment ${part}`));
+          lines.push('');
+          lines.push(mermaidBlock(buildFlowDiagram(chunk), `Process flow segment ${part} for ${processTitle(proc)}`));
+          lines.push('');
+        }
+      }
+    }
+
     // Trigger attributes
     if (proc.triggerAttributes && proc.triggerAttributes.length > 0) {
       lines.push(`**Triggered on changes to:** ${proc.triggerAttributes.map((a) => `\`${a}\``).join(', ')}`);
@@ -1274,8 +2009,30 @@ function generateAppsSection(apps: AppDefinition[], entityMap: Map<string, strin
 
   const lines: string[] = [heading(2, 'Power Apps'), ''];
 
-  lines.push('| App Name | Unique Name | Type | Tables | Connectors | Version | Status |');
-  lines.push('|----------|-------------|------|--------|------------|---------|--------|');
+  const appDetailBullets = (app: AppDefinition): string => {
+    const details: string[] = [];
+    if (app.appType === AppType.ModelDriven) {
+      const areaCount = app.siteMap?.length ?? 0;
+      const groupCount = (app.siteMap ?? []).reduce((sum, area) => sum + (area.groups?.length ?? 0), 0);
+      const subAreaCount = (app.siteMap ?? []).reduce(
+        (sum, area) => sum + (area.groups ?? []).reduce((groupSum, group) => groupSum + (group.subAreas?.length ?? 0), 0),
+        0,
+      );
+      if (areaCount > 0) details.push(`Areas ${areaCount}`);
+      if (groupCount > 0) details.push(`Groups ${groupCount}`);
+      if (subAreaCount > 0) details.push(`Subareas ${subAreaCount}`);
+    }
+    const screenCount = app.canvasInsights?.screenCount ?? app.canvasInsights?.screenNames?.length;
+    if (screenCount) details.push(`Screens ${screenCount}`);
+    if (app.canvasInsights?.controlCount) details.push(`Controls ${app.canvasInsights.controlCount}`);
+    if (app.canvasInsights?.dataSourceCount) details.push(`Data Sources ${app.canvasInsights.dataSourceCount}`);
+    if (app.canvasInsights?.variableCount) details.push(`Variables ${app.canvasInsights.variableCount}`);
+    if (app.canvasInsights?.resourceCount) details.push(`Resources ${app.canvasInsights.resourceCount}`);
+    return tableBulletedList(details);
+  };
+
+  lines.push('| App Name | Unique Name | Type | Tables | Connectors | Details | Version | Status |');
+  lines.push('|----------|-------------|------|--------|------------|---------|---------|--------|');
   sortByLabel(documentedApps, (app) => appTitle(app)).forEach((app) => {
     const tableLabels = sortByLabel(app.entities ?? [], (name) => name).map((name) => entityDisplayLabel(name, entityMap));
     const connectorLabels = sortByLabel(app.connectors ?? [], (name) => name);
@@ -1283,14 +2040,270 @@ function generateAppsSection(apps: AppDefinition[], entityMap: Map<string, strin
       `| ${mdEscape(appTitle(app))} ` +
       `| \`${mdEscape(app.uniqueName)}\` ` +
       `| ${appTypeLabel(app.appType)} ` +
-      `| ${tableLabels.length > 0 ? tableLabels.join(', ') : '–'} ` +
-      `| ${connectorLabels.length > 0 ? connectorLabels.map((c) => mdEscape(c)).join(', ') : '–'} ` +
+      `| ${tableBulletedList(tableLabels)} ` +
+      `| ${tableBulletedList(connectorLabels)} ` +
+      `| ${appDetailBullets(app)} ` +
       `| ${app.version || '–'} ` +
       `| ${app.isEnabled !== false ? '✅ Enabled' : '⛔ Disabled'} |`,
     );
   });
   lines.push('');
 
+  const modelDrivenApps = sortByLabel(
+    documentedApps.filter((app) => app.appType === AppType.ModelDriven),
+    (app) => appTitle(app),
+  );
+  const canvasLikeApps = sortByLabel(
+    documentedApps.filter((app) => app.appType === AppType.Canvas || app.appType === AppType.CustomPage),
+    (app) => appTitle(app),
+  );
+
+  if (modelDrivenApps.length > 0) {
+    lines.push(heading(3, 'Site Map'));
+    lines.push('');
+
+    modelDrivenApps.forEach((app) => {
+      lines.push(heading(4, appTitle(app)));
+      lines.push('');
+
+      const settings = app.siteMapSettings;
+      if (settings) {
+        lines.push('| Setting | Value |');
+        lines.push('|---------|-------|');
+        lines.push(`| Show Home | ${settings.showHome === undefined ? '–' : settings.showHome ? 'Yes' : 'No'} |`);
+        lines.push(`| Show Pinned | ${settings.showPinned === undefined ? '–' : settings.showPinned ? 'Yes' : 'No'} |`);
+        lines.push(`| Show Recents | ${settings.showRecents === undefined ? '–' : settings.showRecents ? 'Yes' : 'No'} |`);
+        lines.push(`| Collapsible Groups | ${settings.enableCollapsibleGroups === undefined ? '–' : settings.enableCollapsibleGroups ? 'Yes' : 'No'} |`);
+        lines.push('');
+      }
+
+      if ((app.siteMap?.length ?? 0) === 0) {
+        lines.push('No sitemap structure was exported for this app.');
+        lines.push('');
+        return;
+      }
+
+      app.siteMap!.forEach((area) => {
+        const areaTitle = mdEscape(area.title || area.id || 'Unnamed Area');
+        lines.push(`- Area: ${areaTitle}`);
+
+        if ((area.groups?.length ?? 0) === 0) {
+          lines.push('  - Group: (none)');
+          return;
+        }
+
+        area.groups.forEach((group) => {
+          const groupTitle = mdEscape(group.title || group.id || 'Unnamed Group');
+          lines.push(`  - Group: ${groupTitle}`);
+
+          if ((group.subAreas?.length ?? 0) === 0) {
+            lines.push('    - Subarea: (none)');
+            return;
+          }
+
+          group.subAreas.forEach((subArea) => {
+            const subAreaLabel = mdEscape(subArea.title || subArea.id || subArea.entity || subArea.url || 'Subarea');
+            const details: string[] = [];
+            if (subArea.entity) details.push(`Table ${entityDisplayLabel(subArea.entity, entityMap)}`);
+            if (subArea.url) details.push(`URL ${mdEscape(subArea.url)}`);
+            lines.push(`    - Subarea: ${subAreaLabel}${details.length > 0 ? ` (${details.join(' | ')})` : ''}`);
+          });
+        });
+      });
+
+      lines.push('');
+    });
+  }
+
+  if (canvasLikeApps.length > 0) {
+    lines.push(heading(3, 'Canvas App Insights'));
+    lines.push('');
+
+    canvasLikeApps.forEach((app) => {
+      lines.push(heading(4, appTitle(app)));
+      lines.push('');
+
+      const insights = app.canvasInsights;
+      if (!insights) {
+        lines.push('No canvas insight metadata was exported for this app.');
+        lines.push('');
+        return;
+      }
+
+      lines.push('| Metric | Value |');
+      lines.push('|--------|-------|');
+      lines.push(`| Screens | ${insights.screenCount ?? insights.screenNames?.length ?? '–'} |`);
+      lines.push(`| Controls | ${insights.controlCount ?? '–'} |`);
+      lines.push(`| Data Sources | ${insights.dataSourceCount ?? '–'} |`);
+      lines.push(`| Variables | ${insights.variableCount ?? '–'} |`);
+      lines.push(`| Resources | ${insights.resourceCount ?? '–'} |`);
+      lines.push('');
+
+      if ((insights.screenNames?.length ?? 0) > 0) {
+        lines.push(`- Screens: ${insights.screenNames!.map((name) => mdEscape(name)).join(', ')}`);
+      }
+      if ((insights.dataSources?.length ?? 0) > 0) {
+        lines.push(`- Data Sources: ${insights.dataSources!.map((name) => mdEscape(name)).join(', ')}`);
+      }
+      if ((insights.variables?.length ?? 0) > 0) {
+        lines.push(`- Variables: ${insights.variables!.map((name) => mdEscape(name)).join(', ')}`);
+      }
+      if ((insights.resources?.length ?? 0) > 0) {
+        lines.push(`- Resources: ${insights.resources!.map((name) => mdEscape(name)).join(', ')}`);
+      }
+
+      if ((insights.screens?.length ?? 0) > 0) {
+        lines.push('');
+        lines.push('| Screen | Controls |');
+        lines.push('|--------|----------|');
+        insights.screens!.forEach((screen) => {
+          const controls = screen.controls.length > 0
+            ? screen.controls.map((control) => mdEscape(control)).join(', ')
+            : '–';
+          lines.push(`| ${mdEscape(screen.name)} | ${controls} |`);
+        });
+      }
+
+      if ((insights.navigation?.length ?? 0) > 0) {
+        lines.push('');
+        lines.push('| From Screen | To Screen |');
+        lines.push('|-------------|-----------|');
+        insights.navigation!.forEach((link) => {
+          lines.push(`| ${mdEscape(link.from)} | ${mdEscape(link.to)} |`);
+        });
+      }
+
+      lines.push('');
+    });
+  }
+
+  return lines.join('\n');
+}
+
+function generateAgentsSection(agents: AgentDefinition[]): string {
+  if (agents.length === 0) return '';
+
+  const lines: string[] = [heading(2, 'Copilot Studio Agents'), ''];
+  lines.push('| Agent | Type | Language | Trigger/Channel | Connectors | Source |');
+  lines.push('|-------|------|----------|-----------------|------------|--------|');
+
+  sortByLabel(agents, (agent) => agent.displayName || agent.name).forEach((agent) => {
+    lines.push(
+      `| ${mdEscape(agent.displayName || agent.name)} ` +
+      `| ${mdEscape(agent.agentType) || '–'} ` +
+      `| ${mdEscape(agent.language) || '–'} ` +
+      `| ${mdEscape(agent.trigger) || '–'} ` +
+      `| ${tableBulletedList(sortByLabel(agent.connectors ?? [], (item) => item))} ` +
+      `| \`${mdEscape(agent.sourcePath)}\` |`,
+    );
+  });
+
+  lines.push('');
+  return lines.join('\n');
+}
+
+function generateAIModelsSection(aiModels: AIModelDefinition[]): string {
+  if (aiModels.length === 0) return '';
+
+  const lines: string[] = [heading(2, 'AI Models'), ''];
+  lines.push('| Model | Type | Provider | Version | Endpoint/Deployment | Source |');
+  lines.push('|-------|------|----------|---------|---------------------|--------|');
+
+  sortByLabel(aiModels, (model) => model.displayName || model.name).forEach((model) => {
+    lines.push(
+      `| ${mdEscape(model.displayName || model.name)} ` +
+      `| ${mdEscape(model.modelType) || '–'} ` +
+      `| ${mdEscape(model.provider) || '–'} ` +
+      `| ${mdEscape(model.version) || '–'} ` +
+      `| ${mdEscape(model.endpoint) || '–'} ` +
+      `| \`${mdEscape(model.sourcePath)}\` |`,
+    );
+  });
+
+  lines.push('');
+  return lines.join('\n');
+}
+
+function generateDesktopFlowsSection(desktopFlows: DesktopFlowDefinition[]): string {
+  if (desktopFlows.length === 0) return '';
+
+  const lines: string[] = [heading(2, 'Desktop Flows'), ''];
+  lines.push('| Desktop Flow | Folder | Status | Steps | Connectors | Source |');
+  lines.push('|--------------|--------|--------|-------|------------|--------|');
+
+  sortByLabel(desktopFlows, (flow) => flow.displayName || flow.name).forEach((flow) => {
+    const status = flow.isEnabled === undefined ? '–' : flow.isEnabled ? '✅ Enabled' : '⛔ Disabled';
+    lines.push(
+      `| ${mdEscape(flow.displayName || flow.name)} ` +
+      `| ${mdEscape(flow.folder) || '–'} ` +
+      `| ${status} ` +
+      `| ${flow.stepCount ?? '–'} ` +
+      `| ${tableBulletedList(sortByLabel(flow.connectors ?? [], (item) => item))} ` +
+      `| \`${mdEscape(flow.sourcePath)}\` |`,
+    );
+  });
+
+  lines.push('');
+  return lines.join('\n');
+}
+
+function generateDataflowsSection(dataflows: DataflowDefinition[]): string {
+  if (dataflows.length === 0) return '';
+
+  const lines: string[] = [heading(2, 'Dataflows'), ''];
+  lines.push('| Dataflow | Refresh | Connectors | Source |');
+  lines.push('|----------|---------|------------|--------|');
+
+  sortByLabel(dataflows, (flow) => flow.displayName || flow.name).forEach((flow) => {
+    lines.push(
+      `| ${mdEscape(flow.displayName || flow.name)} ` +
+      `| ${mdEscape(flow.refreshMode) || '–'} ` +
+      `| ${tableBulletedList(sortByLabel(flow.connectors ?? [], (item) => item))} ` +
+      `| \`${mdEscape(flow.sourcePath)}\` |`,
+    );
+  });
+
+  lines.push('');
+  return lines.join('\n');
+}
+
+function generateCustomApisSection(customApis: CustomAPIDefinition[]): string {
+  if (customApis.length === 0) return '';
+
+  const lines: string[] = [heading(2, 'Custom APIs'), ''];
+  lines.push('| Custom API | Bound Table | Function | Source |');
+  lines.push('|------------|-------------|----------|--------|');
+
+  sortByLabel(customApis, (api) => api.displayName || api.name).forEach((api) => {
+    lines.push(
+      `| ${mdEscape(api.displayName || api.name)} ` +
+      `| ${mdEscape(api.boundEntityLogicalName) || '–'} ` +
+      `| ${api.isFunction === undefined ? '–' : api.isFunction ? 'Yes' : 'No'} ` +
+      `| \`${mdEscape(api.sourcePath)}\` |`,
+    );
+  });
+
+  lines.push('');
+  return lines.join('\n');
+}
+
+function generateOfflineProfilesSection(offlineProfiles: OfflineProfileDefinition[]): string {
+  if (offlineProfiles.length === 0) return '';
+
+  const lines: string[] = [heading(2, 'Offline Profiles'), ''];
+  lines.push('| Profile | Type | Tables | Source |');
+  lines.push('|---------|------|--------|--------|');
+
+  sortByLabel(offlineProfiles, (profile) => profile.displayName || profile.name).forEach((profile) => {
+    lines.push(
+      `| ${mdEscape(profile.displayName || profile.name)} ` +
+      `| ${mdEscape(profile.profileType) || '–'} ` +
+      `| ${tableBulletedList(sortByLabel(profile.entities ?? [], (item) => item))} ` +
+      `| \`${mdEscape(profile.sourcePath)}\` |`,
+    );
+  });
+
+  lines.push('');
   return lines.join('\n');
 }
 
@@ -1551,11 +2564,12 @@ function generateIntegrationSection(
     lines.push('| Display Name | Schema Name | Type | Has Value | Current Value | Default Value |');
     lines.push('|--------------|-------------|------|-----------|---------------|---------------|');
     sortByLabel(envVars, (ev) => ev.displayName || ev.schemaName).forEach((ev) => {
+      const hasAnyValue = !!(ev.hasCurrentValue || (ev.currentValue && ev.currentValue.trim()) || (ev.defaultValue && ev.defaultValue.trim()));
       lines.push(
         `| ${mdEscape(ev.displayName || ev.schemaName)} ` +
         `| \`${mdEscape(ev.schemaName)}\` ` +
         `| ${ev.type} ` +
-        `| ${ev.hasCurrentValue ? '✅' : '⚠️ Not set'} ` +
+        `| ${hasAnyValue ? '✅' : '⚠️ Not set'} ` +
         `| ${ev.hasCurrentValue ? mdEscape(ev.currentValue) || 'Set' : '–'} ` +
         `| ${mdEscape(ev.defaultValue) || '–'} |`,
       );
@@ -1730,28 +2744,118 @@ export function generateMarkdown(
   solution: ParsedSolution,
   options: MarkdownGenerationOptions = {},
 ): string {
+  return renderMarkdownDocument(buildSolutionOutputSections(solution, options), { addBackToTopLinks: true });
+}
+
+function buildSolutionOutputSections(
+  solution: ParsedSolution,
+  options: MarkdownGenerationOptions,
+): OutputSection[] {
+  const documentationSettings = normalizeDocumentationSettings(options.documentationSettings);
+  const includeDetailedSections = documentationSettings.detailLevel === 'detailed';
   const entityMap = buildEntityDisplayMap(solution.entities);
   const attributeDisplayMap = buildAttributeDisplayMap(solution.entities);
 
-  const sections: string[] = [
-    generateHeader(solution, options.documentContext),
-    generateTableOfContents(solution),
-    generateERD(solution.entities, options),
-    generateEntitiesSection(solution.entities, solution.optionSets, entityMap),
-    generateOptionSetsSection(solution.optionSets),
-    generateFormsViewsSection(solution, entityMap),
-    generateProcessesSection(solution.processes, entityMap, solution.connectionReferences, solution.environmentVariables),
-    generateAppsSection(solution.apps, entityMap),
-    generateWebResourcesSection(solution.webResources),
-    generateSecuritySection(solution.securityRoles, solution.fieldSecurityProfiles, entityMap, attributeDisplayMap),
-    generateIntegrationSection(solution.connectionReferences, solution.environmentVariables, solution.emailTemplates),
-    generateReportsSection(solution.reports, solution.dashboards),
-    generatePluginsSection(solution.pluginAssemblies),
-    generateWarningsSection(solution.warnings),
+  return [
+    createOutputSection('header', generateHeader(solution, options.documentContext)),
+    createOutputSection('table-of-contents', generateTableOfContents(solution, documentationSettings)),
+    createOutputSection('dependencies', generateDependenciesSection(solution.metadata.dependencies)),
+    createOutputSection('component-inventory', generateComponentInventorySection(solution.metadata.componentInventory)),
+    createOutputSection(
+      'component-relationship-graph',
+      includeDetailedSections ? generateComponentRelationshipGraphSection(solution, entityMap) : '',
+    ),
+    createOutputSection('entity-relationship-diagram', includeDetailedSections ? generateERD(solution.entities, options) : ''),
+    createOutputSection(
+      'tables-columns',
+      includeDetailedSections
+        ? generateEntitiesSection(
+          solution.entities,
+          solution.optionSets,
+          entityMap,
+          solution.forms,
+          solution.fieldSecurityProfiles,
+          documentationSettings,
+        )
+        : '',
+    ),
+    createOutputSection('global-option-sets', includeDetailedSections ? generateOptionSetsSection(solution.optionSets) : ''),
+    createOutputSection('forms-views', includeDetailedSections ? generateFormsViewsSection(solution, entityMap) : ''),
+    createOutputSection(
+      'processes-automation',
+      documentationSettings.scope.flows
+        ? generateProcessesSection(solution.processes, entityMap, solution.connectionReferences, solution.environmentVariables)
+        : '',
+    ),
+    createOutputSection('power-apps', documentationSettings.scope.apps ? generateAppsSection(solution.apps, entityMap) : ''),
+    createOutputSection('copilot-studio-agents', includeDetailedSections ? generateAgentsSection(solution.agents) : ''),
+    createOutputSection('ai-models', includeDetailedSections ? generateAIModelsSection(solution.aiModels) : ''),
+    createOutputSection('desktop-flows', includeDetailedSections ? generateDesktopFlowsSection(solution.desktopFlows) : ''),
+    createOutputSection('dataflows', includeDetailedSections ? generateDataflowsSection(solution.dataflows ?? []) : ''),
+    createOutputSection('custom-apis', includeDetailedSections ? generateCustomApisSection(solution.customApis ?? []) : ''),
+    createOutputSection('offline-profiles', includeDetailedSections ? generateOfflineProfilesSection(solution.offlineProfiles ?? []) : ''),
+    createOutputSection('web-resources', includeDetailedSections ? generateWebResourcesSection(solution.webResources) : ''),
+    createOutputSection(
+      'security-roles',
+      documentationSettings.scope.security
+        ? generateSecuritySection(solution.securityRoles, solution.fieldSecurityProfiles, entityMap, attributeDisplayMap)
+        : '',
+    ),
+    createOutputSection(
+      'integration',
+      documentationSettings.scope.integration
+        ? generateIntegrationSection(solution.connectionReferences, solution.environmentVariables, solution.emailTemplates)
+        : '',
+    ),
+    createOutputSection('reports-dashboards', documentationSettings.scope.reports ? generateReportsSection(solution.reports, solution.dashboards) : ''),
+    createOutputSection('plugin-assemblies-steps', documentationSettings.scope.plugins ? generatePluginsSection(solution.pluginAssemblies) : ''),
+    createOutputSection('warnings', generateWarningsSection(solution.warnings)),
   ];
+}
 
-  // Filter out empty sections and join
-  return appendBackToTopLinks(sections.filter((s) => s.trim().length > 0).join('\n'));
+export function buildMetadataGridRows(solution: ParsedSolution): OutputMetadataGridRow[] {
+  const rows: OutputMetadataGridRow[] = [];
+
+  solution.entities.forEach((entity) => {
+    const entityLabel = entity.logicalName;
+    rows.push({
+      entity: entityLabel,
+      value: `Entity: ${entity.displayName || entity.logicalName}`,
+    });
+
+    entity.attributes.forEach((attribute) => {
+      rows.push({
+        entity: entityLabel,
+        attribute: attribute.name,
+        value: `${attribute.type}${attribute.required ? ' (required)' : ''}`,
+      });
+    });
+
+    entity.relationships.forEach((relationship) => {
+      rows.push({
+        entity: entityLabel,
+        relationship: relationship.name,
+        value: `${relationship.type}: ${relationship.referencingEntity} -> ${relationship.referencedEntity}`,
+      });
+    });
+  });
+
+  return rows;
+}
+
+export function generateMetadataGridMarkdown(solution: ParsedSolution): string {
+  const rows = buildMetadataGridRows(solution);
+  if (rows.length === 0) return '';
+
+  return renderMarkdownDocument([
+    createMetadataGridSection({
+      id: 'solution-metadata-grid',
+      title: 'Solution Metadata Grid',
+      introMarkdown:
+        '> Intermediate metadata-grid export containing entity, attribute, and relationship rows.',
+      rows,
+    }),
+  ]);
 }
 
 /**
@@ -1867,8 +2971,8 @@ export function generateConsolidatedMarkdown(
     lines.push(
       `| ${mdEscape(appTitle(app))} ` +
       `| ${appTypeLabel(app.appType)} ` +
-      `| ${(app.entities ?? []).length > 0 ? sortByLabel(app.entities ?? [], (e) => e).map((table) => entityDisplayLabel(table, consolidatedEntityMap)).join(', ') : '–'} ` +
-      `| ${(app.connectors ?? []).length > 0 ? sortByLabel(app.connectors ?? [], (c) => c).map((c) => mdEscape(c)).join(', ') : '–'} |`,
+      `| ${tableBulletedList(sortByLabel(app.entities ?? [], (e) => e).map((table) => entityDisplayLabel(table, consolidatedEntityMap)))} ` +
+      `| ${tableBulletedList(sortByLabel(app.connectors ?? [], (c) => c))} |`,
     );
   });
   lines.push('');
@@ -1902,5 +3006,7 @@ export function generateConsolidatedMarkdown(
   });
   lines.push('');
 
-  return appendBackToTopLinks(lines.join('\n'));
+  return renderMarkdownDocument([
+    createOutputSection('consolidated-summary', lines.join('\n')),
+  ], { addBackToTopLinks: true });
 }

@@ -9,7 +9,7 @@ on:
       release_tag:
         description: Existing tag to build and publish assets for
         required: true
-        default: v1.0.2
+        default: v1.0.4
       include_windows:
         description: Also rebuild Windows assets (x64 and arm64)
         required: false
@@ -50,8 +50,35 @@ jobs:
               --generate-notes
           fi
 
-  build-windows:
+  quality-gates:
     needs: ensure-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run quality gate (lint, regression, smoke, build, WCAG)
+        run: npm run quality:gate
+
+  build-windows:
+    needs:
+      - ensure-release
+      - quality-gates
     if: ${{ github.event_name == 'push' || inputs.include_windows }}
     runs-on: windows-latest
 
@@ -92,7 +119,9 @@ jobs:
         run: gh release upload "${RELEASE_TAG}" dist-portable/*.exe dist-installer/*.exe --clobber --repo "${GITHUB_REPOSITORY}"
 
   build-linux:
-    needs: ensure-release
+    needs:
+      - ensure-release
+      - quality-gates
     if: ${{ github.event_name == 'push' || inputs.include_linux }}
     runs-on: ubuntu-latest
 
@@ -129,7 +158,9 @@ jobs:
         run: gh release upload "${RELEASE_TAG}" dist-linux/*.AppImage --clobber --repo "${GITHUB_REPOSITORY}"
 
   build-macos:
-    needs: ensure-release
+    needs:
+      - ensure-release
+      - quality-gates
     if: ${{ github.event_name == 'push' || inputs.include_macos }}
     runs-on: macos-latest
 
