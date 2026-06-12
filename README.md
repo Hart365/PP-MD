@@ -26,9 +26,11 @@ PP-MD is a Windows desktop application that turns Microsoft Power Platform solut
 
 ## What It Does
 
-When you export a solution from Power Platform / Dataverse, you receive a ZIP archive containing XML definitions of every component — tables, columns, relationships, flows, apps, security roles, plugins, and more. Reading that raw XML is slow and error-prone.
+Documentation. Usually a task people try to avoid, often difficult to get consistent output, and not fun to include all of the details you need. Then add in updating ADO, Jira etc. with the latest notes and people run for the hills.
 
-PP-MD parses that ZIP entirely on your local machine and produces a single, readable `.md` file that covers:
+This is where PP-MD steps in to the mix. Load the app, configure your document information (project, sprint, client etc) and document options, and then select solution ZIP files and click "Generate Documentation" to get a full suite of Markdown documentation automatically and consistently.
+
+PP-MD parses you solution zip files and generates documentation that covers:
 
 - An auto-generated **Entity Relationship Diagram** (ERD) rendered as a Mermaid diagram
 - Every **Dataverse table** with its columns, data types, and relationships
@@ -41,7 +43,7 @@ PP-MD parses that ZIP entirely on your local machine and produces a single, read
 - Optional document metadata header (client, project, contract, sprint, release date)
 - Column filtering controls, including **Include/Exclude Default Columns** (system columns), while always retaining relationship key columns in relationship documentation and ERD relationship context
 
-Multiple solutions can be loaded at once and reviewed side-by-side, or merged into a single **consolidated report** across all loaded solutions.
+Multiple solutions can be loaded at once and reviewed across all loaded solutions.
 
 ---
 
