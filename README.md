@@ -39,6 +39,7 @@ PP-MD parses that ZIP entirely on your local machine and produces a single, read
 - **Plugins** and SDK message processing steps
 - **Reports**, **dashboards**, **web resources**, and **email templates**
 - Optional document metadata header (client, project, contract, sprint, release date)
+- Column filtering controls, including **Include/Exclude Default Columns** (system columns), while always retaining relationship key columns in relationship documentation and ERD relationship context
 
 Multiple solutions can be loaded at once and reviewed side-by-side, or merged into a single **consolidated report** across all loaded solutions.
 

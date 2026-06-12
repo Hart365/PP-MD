@@ -123,6 +123,8 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
       reports: settings?.scope?.reports ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.reports,
     },
     metadata: {
+      includeDefaultColumns:
+        settings?.metadata?.includeDefaultColumns ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeDefaultColumns,
       includeAuditInfo: settings?.metadata?.includeAuditInfo ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeAuditInfo,
       includeFieldSecurityFlags:
         settings?.metadata?.includeFieldSecurityFlags ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeFieldSecurityFlags,
@@ -1041,6 +1043,14 @@ export default function App() {
                 </label>
 
                 <div className={styles.scopeGrid}>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.metadata.includeDefaultColumns}
+                      onChange={() => handleMetadataToggle('includeDefaultColumns')}
+                    />
+                    <span>Include Default Columns</span>
+                  </label>
                   <label className={styles.scopeItem}>
                     <input
                       type="checkbox"

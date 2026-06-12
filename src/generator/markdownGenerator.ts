@@ -75,6 +75,7 @@ export type AttributeSelectionMode =
   | 'unmanaged-only';
 
 export interface DocumentationMetadataSettings {
+  includeDefaultColumns: boolean;
   includeAuditInfo: boolean;
   includeFieldSecurityFlags: boolean;
   includeRequiredLevelInfo: boolean;
@@ -102,6 +103,7 @@ export const DEFAULT_DOCUMENTATION_SETTINGS: DocumentationSettings = {
     reports: true,
   },
   metadata: {
+    includeDefaultColumns: true,
     includeAuditInfo: true,
     includeFieldSecurityFlags: true,
     includeRequiredLevelInfo: true,
@@ -382,6 +384,7 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
       reports: settings?.scope?.reports ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.reports,
     },
     metadata: {
+      includeDefaultColumns: settings?.metadata?.includeDefaultColumns ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeDefaultColumns,
       includeAuditInfo: settings?.metadata?.includeAuditInfo ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeAuditInfo,
       includeFieldSecurityFlags: settings?.metadata?.includeFieldSecurityFlags ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeFieldSecurityFlags,
       includeRequiredLevelInfo: settings?.metadata?.includeRequiredLevelInfo ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeRequiredLevelInfo,
@@ -1136,6 +1139,7 @@ function generateDependenciesSection(dependencies: SolutionDependency[]): string
 function generateERD(
   entities: EntityDefinition[],
   options: MarkdownGenerationOptions,
+  settings: DocumentationSettings,
 ): string {
   if (entities.length === 0) return '';
 
@@ -1216,15 +1220,18 @@ function generateERD(
       const relationshipColumns = new Set<string>();
       entity.relationships.forEach((rel) => {
         if (rel.referencingAttribute) relationshipColumns.add(rel.referencingAttribute.toLowerCase());
+        if (rel.referencedAttribute) relationshipColumns.add(rel.referencedAttribute.toLowerCase());
       });
 
       const attrsToShow = entity.attributes.filter((attr) =>
-        relationshipColumns.has(attr.name.toLowerCase()) ||
-        attr.type === AttributeType.Lookup ||
-        attr.type === AttributeType.Owner ||
-        attr.type === AttributeType.Customer ||
-        attr.type === AttributeType.PartyList ||
-        /id$/i.test(attr.name),
+        ((settings.metadata.includeDefaultColumns || attr.isCustom || relationshipColumns.has(attr.name.toLowerCase())) && (
+          relationshipColumns.has(attr.name.toLowerCase()) ||
+          attr.type === AttributeType.Lookup ||
+          attr.type === AttributeType.Owner ||
+          attr.type === AttributeType.Customer ||
+          attr.type === AttributeType.PartyList ||
+          /id$/i.test(attr.name)
+        )),
       ).slice(0, 12);
 
       diagram.push(displayLabel ? `  ${entityId}["${displayLabel}"] {` : `  ${entityId} {`);
@@ -1370,24 +1377,28 @@ function generateEntitiesSection(
       ? entity.attributes.filter((attr) => attr.type !== AttributeType.Virtual)
       : entity.attributes;
 
+    const withoutDefaultColumns = metadataSettings.includeDefaultColumns
+      ? withoutVirtual
+      : withoutVirtual.filter((attr) => attr.isCustom);
+
     switch (metadataSettings.attributeSelectionMode) {
       case 'attributes-on-form':
-        return withoutVirtual.filter((attr) => formFieldNames.has(attr.name.toLowerCase()));
+        return withoutDefaultColumns.filter((attr) => formFieldNames.has(attr.name.toLowerCase()));
       case 'attributes-not-on-form':
-        return withoutVirtual.filter((attr) => !formFieldNames.has(attr.name.toLowerCase()));
+        return withoutDefaultColumns.filter((attr) => !formFieldNames.has(attr.name.toLowerCase()));
       case 'custom-only':
-        return withoutVirtual.filter((attr) => attr.isCustom);
+        return withoutDefaultColumns.filter((attr) => attr.isCustom);
       case 'option-set-focused':
-        return withoutVirtual.filter((attr) => attr.type === AttributeType.OptionSet || attr.type === AttributeType.MultiSelectOptionSet);
+        return withoutDefaultColumns.filter((attr) => attr.type === AttributeType.OptionSet || attr.type === AttributeType.MultiSelectOptionSet);
       case 'manually-selected': {
         const selected = new Set(metadataSettings.manuallySelectedAttributes);
-        return withoutVirtual.filter((attr) => selected.has(attr.name.toLowerCase()));
+        return withoutDefaultColumns.filter((attr) => selected.has(attr.name.toLowerCase()));
       }
       case 'unmanaged-only':
-        return withoutVirtual.filter((attr) => attr.isManaged === undefined ? attr.isCustom : !attr.isManaged);
+        return withoutDefaultColumns.filter((attr) => attr.isManaged === undefined ? attr.isCustom : !attr.isManaged);
       case 'all':
       default:
-        return withoutVirtual;
+        return withoutDefaultColumns;
     }
   };
 
@@ -2765,7 +2776,10 @@ function buildSolutionOutputSections(
       'component-relationship-graph',
       includeDetailedSections ? generateComponentRelationshipGraphSection(solution, entityMap) : '',
     ),
-    createOutputSection('entity-relationship-diagram', includeDetailedSections ? generateERD(solution.entities, options) : ''),
+    createOutputSection(
+      'entity-relationship-diagram',
+      includeDetailedSections ? generateERD(solution.entities, options, documentationSettings) : '',
+    ),
     createOutputSection(
       'tables-columns',
       includeDetailedSections

@@ -27,6 +27,8 @@ The generated documentation now covers a significantly broader set of solution c
 
 #### Enhanced Table & Column Documentation
 
+- **Include/Exclude Default Columns** — a new toggle controls whether Dataverse default/system columns are included in table and column documentation. Default columns remain available in relationship documentation and relationship-focused ERD context so key links are preserved.
+
 Column (attribute) tables now support several additional optional columns, all independently toggleable:
 
 | Option | Description |

@@ -46,6 +46,7 @@ describe('settings controls and migration', () => {
 
     await waitFor(() => {
       expect((screen.getByLabelText(/select attribute selection mode/i) as HTMLSelectElement).value).toBe('all');
+      expect((screen.getByLabelText(/include default columns/i) as HTMLInputElement).checked).toBe(true);
     });
   });
 

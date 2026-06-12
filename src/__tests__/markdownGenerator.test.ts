@@ -181,6 +181,87 @@ describe('generateMarkdown', () => {
     expect(markdown).not.toContain('`new_virtualscore`');
   });
 
+  it('excludes default columns from table docs while preserving relationship columns in relationship documentation and ERD', () => {
+    const markdown = generateMarkdown(
+      {
+        ...sampleSolution,
+        entities: [
+          {
+            ...sampleSolution.entities[0],
+            logicalName: 'account',
+            name: 'account',
+            displayName: 'Account',
+            attributes: [
+              {
+                name: 'new_name',
+                displayName: 'Name',
+                type: AttributeType.String,
+                required: true,
+                isCustom: true,
+              },
+              {
+                name: 'ownerid',
+                displayName: 'Owner',
+                type: AttributeType.Owner,
+                required: false,
+                isCustom: false,
+              },
+              {
+                name: 'createdon',
+                displayName: 'Created On',
+                type: AttributeType.DateTime,
+                required: false,
+                isCustom: false,
+              },
+            ],
+            relationships: [
+              {
+                name: 'owner_account_owner',
+                type: 'ManyToOne',
+                referencedEntity: 'systemuser',
+                referencingEntity: 'account',
+                referencingAttribute: 'ownerid',
+                referencedAttribute: 'systemuserid',
+              },
+            ],
+          },
+          {
+            name: 'systemuser',
+            logicalName: 'systemuser',
+            displayName: 'System User',
+            isCustom: false,
+            attributes: [
+              {
+                name: 'systemuserid',
+                displayName: 'System User ID',
+                type: AttributeType.UniqueIdentifier,
+                required: true,
+                isCustom: false,
+              },
+            ],
+            relationships: [],
+          },
+        ],
+      },
+      {
+        documentationSettings: {
+          ...DEFAULT_DOCUMENTATION_SETTINGS,
+          metadata: {
+            ...DEFAULT_DOCUMENTATION_SETTINGS.metadata,
+            includeDefaultColumns: false,
+          },
+        },
+      },
+    );
+
+    expect(markdown).toContain('`new_name`');
+    expect(markdown).not.toContain('`ownerid` | Owner');
+    expect(markdown).not.toContain('`createdon`');
+    expect(markdown).toContain('#### Relationships');
+    expect(markdown).toContain('owner_account_owner ownerid');
+    expect(markdown).toContain('owner ownerid');
+  });
+
   it('renders a process dependency graph for process table relationships', () => {
     const markdown = generateMarkdown(
       {
