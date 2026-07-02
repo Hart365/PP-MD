@@ -97,6 +97,52 @@ describe('parseSolutionZip regressions', () => {
     expect(envVar?.currentValue).toBe('environment-enabled');
   });
 
+  it('does not treat IsCustomizable alone as a custom table flag', async () => {
+    const zip = new JSZip();
+    zip.file(
+      'solution.xml',
+      `<?xml version="1.0" encoding="utf-8"?>
+<ImportExportXml>
+  <SolutionManifest>
+    <UniqueName>contoso_entity_customizable</UniqueName>
+    <Version>1.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher>
+      <UniqueName>contoso</UniqueName>
+      <FriendlyName>Contoso</FriendlyName>
+    </Publisher>
+  </SolutionManifest>
+</ImportExportXml>`,
+    );
+
+    zip.file(
+      'customizations.xml',
+      `<?xml version="1.0" encoding="utf-8"?>
+<ImportExportXml>
+  <Entities>
+    <Entity>
+      <Name LocalizedName="Contact">contact</Name>
+      <EntityInfo>
+        <entity Name="contact" DisplayName="Contact">
+          <IsCustomizable>
+            <Value>true</Value>
+          </IsCustomizable>
+        </entity>
+      </EntityInfo>
+      <EntityRelationships />
+    </Entity>
+  </Entities>
+</ImportExportXml>`,
+    );
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const parsed = await parseSolutionZip(blob);
+    const entity = parsed.entities.find((item) => item.logicalName === 'contact');
+
+    expect(entity).toBeTruthy();
+    expect(entity?.isCustom).toBe(false);
+  });
+
   it('extracts form field locations for body/header/footer controls', async () => {
     const zip = new JSZip();
     zip.file(

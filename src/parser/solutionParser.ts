@@ -1082,7 +1082,7 @@ function parseEntityNode(
   })();
 
   const isCustom         =
-    parseBooleanMetadata(entity, ['IsCustomEntity', 'IsCustomizable']) ??
+    parseBooleanMetadata(entity, ['IsCustomEntity']) ??
     parseBooleanLike(xmlStr(entity, 'IsCustomEntity')) ??
     parseBooleanLike(xmlStr(entity, '@_IsCustomEntity')) ??
     false;

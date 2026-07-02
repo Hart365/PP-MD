@@ -2,6 +2,45 @@
 
 ---
 
+## Versions 1.1.3 to 1.1.5
+
+### Fixes
+
+- Fixed a regression where the Security Roles section could disappear when active security-role filters removed all matching table privileges.
+- Security roles are now always listed when roles exist in the solution, even if filtered privilege rows are empty.
+- Added an explicit placeholder row in empty filtered matrices: _No table privileges matched the active filters for this role._
+- Fixed security role table filtering logic so **Only Include Tables in Current Solution** matches all tables present in the solution, not only custom tables.
+- Preserved **Only Include Custom Tables in Security Roles** as an additional filter, so when both toggles are enabled the result is the expected intersection.
+- Added support for matching role privilege table names against both Dataverse logical names and entity-set names to reduce false exclusions.
+- Hardened custom-table detection for security role filters so custom tables are retained even when Dataverse exports do not reliably mark `IsCustomEntity`.
+- Added fallback custom-table heuristics using object type code and Dataverse naming patterns for logical names and entity-set names.
+
+### New Features
+
+- Added a new document option: **Generate Companion Diagrams Document**.
+- When enabled, Mermaid diagrams are moved into a companion markdown file while the main document keeps the same structure and includes a notice that diagrams are available in the companion file.
+- Companion and primary outputs both preserve Table of Contents and Back-to-Top navigation links.
+
+### Quality
+
+- Added a regression test to ensure filtered-empty role matrices do not remove the Security Roles section.
+- Updated regression tests for security role filtering semantics and added coverage for logical-name/entity-set-name matching.
+- Added regression tests for fallback custom-table filtering when `IsCustomEntity` metadata is unavailable.
+- Added tests validating diagram extraction into a companion markdown output.
+
+---
+
+## Version 1.1.2
+
+### New Features
+
+#### Security Role Filters
+
+- **Only include tables in current solution** — limits the security role privilege matrix to tables that exist in the loaded solution.
+- **Only include custom tables** — further narrows the privilege matrix to custom tables only, excluding out-of-box tables even when they appear in the role.
+
+---
+
 ## Version 1.1.0
 
 ### New Features

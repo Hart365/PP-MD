@@ -28,6 +28,7 @@ release-temp-*/
 
 # Release output folders (builds are now done via GitHub Actions)
 release/
+release_*/
 release_latest/
 release_latest_portable/
 release_latest_installer/

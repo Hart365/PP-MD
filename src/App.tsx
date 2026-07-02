@@ -35,6 +35,7 @@ import {
   generateMarkdown,
   generateConsolidatedMarkdown,
   consolidateSolutions,
+  splitMarkdownForDiagramCompanion,
   type DocumentationSettings,
   type DocumentContext,
 } from './generator/markdownGenerator';
@@ -59,6 +60,7 @@ interface SolutionResult {
   markdown:  string;
   fileName:  string;
   isConsolidated?: boolean;
+  isDiagramCompanion?: boolean;
 }
 
 type ErdMode = 'compact' | 'detailed-relationships';
@@ -142,6 +144,14 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
           : APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.attributeSelectionMode,
       manuallySelectedAttributes: normalizedManualAttributes,
     },
+    securityRoleFilters: {
+      onlyTablesInCurrentSolution:
+        settings?.securityRoleFilters?.onlyTablesInCurrentSolution ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.securityRoleFilters.onlyTablesInCurrentSolution,
+      onlyCustomTables:
+        settings?.securityRoleFilters?.onlyCustomTables ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.securityRoleFilters.onlyCustomTables,
+    },
+    separateDiagramsDocument:
+      settings?.separateDiagramsDocument ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.separateDiagramsDocument,
   };
 }
 
@@ -218,7 +228,7 @@ function readSavedConfigurations(): SavedDocumentConfiguration[] {
         const config = entry as SavedDocumentConfiguration;
         return {
           ...config,
-          schemaVersion: 2,
+          schemaVersion: 3,
           documentationSettings: normalizeDocumentationSettings(config.documentationSettings),
         } satisfies SavedDocumentConfiguration;
       })
@@ -261,17 +271,45 @@ function buildConsolidatedResult(
   _erdMode: ErdMode,
   documentContext: DocumentContext,
   documentationSettings: DocumentationSettings,
-): SolutionResult {
+): SolutionResult[] {
   const solutions = results.map((r) => r.solution);
   const markdown = generateConsolidatedMarkdown(solutions, { documentContext, documentationSettings });
   const aggregated: ParsedSolution = consolidateSolutions(solutions);
 
-  return {
+  if (!documentationSettings.separateDiagramsDocument) {
+    return [{
+      solution: aggregated,
+      markdown,
+      fileName: 'consolidated-summary.md',
+      isConsolidated: true,
+    }];
+  }
+
+  const { mainMarkdown, companionMarkdown } = splitMarkdownForDiagramCompanion(markdown);
+  const items: SolutionResult[] = [{
     solution: aggregated,
-    markdown,
+    markdown: mainMarkdown,
     fileName: 'consolidated-summary.md',
     isConsolidated: true,
-  };
+  }];
+
+  if (companionMarkdown.trim().length > 0) {
+    items.push({
+      solution: {
+        ...aggregated,
+        metadata: {
+          ...aggregated.metadata,
+          displayName: `${aggregated.metadata.displayName} (Diagrams)`,
+        },
+      },
+      markdown: companionMarkdown,
+      fileName: 'consolidated-summary-diagrams.md',
+      isConsolidated: true,
+      isDiagramCompanion: true,
+    });
+  }
+
+  return items;
 }
 
 function rebuildResults(
@@ -281,14 +319,46 @@ function rebuildResults(
   documentationSettings: DocumentationSettings,
 ): SolutionResult[] {
   const base = sortSolutionResults(results
-    .filter((entry) => !entry.isConsolidated)
-    .map((entry) => ({
-      ...entry,
-      markdown: generateMarkdown(entry.solution, { erdMode, documentContext, documentationSettings }),
-    })));
+    .filter((entry) => !entry.isConsolidated && !entry.isDiagramCompanion)
+    .flatMap((entry) => {
+      const markdown = generateMarkdown(entry.solution, { erdMode, documentContext, documentationSettings });
+      if (!documentationSettings.separateDiagramsDocument) {
+        return [{
+          ...entry,
+          markdown,
+          isDiagramCompanion: false,
+        }];
+      }
+
+      const { mainMarkdown, companionMarkdown } = splitMarkdownForDiagramCompanion(markdown);
+      const items: SolutionResult[] = [{
+        ...entry,
+        markdown: mainMarkdown,
+        isDiagramCompanion: false,
+      }];
+
+      if (companionMarkdown.trim().length > 0) {
+        const baseName = entry.fileName.replace(/\.[^.]+$/u, '');
+        items.push({
+          ...entry,
+          solution: {
+            ...entry.solution,
+            metadata: {
+              ...entry.solution.metadata,
+              displayName: `${entry.solution.metadata.displayName || entry.solution.metadata.uniqueName} (Diagrams)`,
+            },
+          },
+          markdown: companionMarkdown,
+          fileName: `${baseName}-diagrams.md`,
+          isDiagramCompanion: true,
+        });
+      }
+
+      return items;
+    }));
 
   if (base.length > 1) {
-    return [buildConsolidatedResult(base, erdMode, documentContext, documentationSettings), ...base];
+    return [...buildConsolidatedResult(base, erdMode, documentContext, documentationSettings), ...base];
   }
 
   return base;
@@ -446,7 +516,7 @@ export default function App() {
     const configToSave: SavedDocumentConfiguration = {
       id: configId,
       name,
-      schemaVersion: 2,
+      schemaVersion: 3,
       client: documentContext.client,
       project: documentContext.project,
       contract: documentContext.contract,
@@ -543,7 +613,27 @@ export default function App() {
         setStatusMsg(`Generating documentation for ${file.name}…`);
         const markdown = generateMarkdown(solution, { erdMode, documentContext, documentationSettings });
 
-        newResults.push({ solution, markdown, fileName: file.name });
+        if (!documentationSettings.separateDiagramsDocument) {
+          newResults.push({ solution, markdown, fileName: file.name });
+        } else {
+          const { mainMarkdown, companionMarkdown } = splitMarkdownForDiagramCompanion(markdown);
+          newResults.push({ solution, markdown: mainMarkdown, fileName: file.name });
+          if (companionMarkdown.trim().length > 0) {
+            const baseName = file.name.replace(/\.[^.]+$/u, '');
+            newResults.push({
+              solution: {
+                ...solution,
+                metadata: {
+                  ...solution.metadata,
+                  displayName: `${solution.metadata.displayName || solution.metadata.uniqueName} (Diagrams)`,
+                },
+              },
+              markdown: companionMarkdown,
+              fileName: `${baseName}-diagrams.md`,
+              isDiagramCompanion: true,
+            });
+          }
+        }
 
         // Mark as complete
         updateProcessingEntry(i, (entry) => ({ ...entry, progress: 100 }));
@@ -555,10 +645,10 @@ export default function App() {
     }
 
     if (newResults.length > 0) {
-      const existingBase = results.filter((r) => !r.isConsolidated);
+      const existingBase = results.filter((r) => !r.isConsolidated && !r.isDiagramCompanion);
       const mergedBase = sortSolutionResults([...existingBase, ...newResults]);
       const nextResults = mergedBase.length > 1
-        ? [buildConsolidatedResult(mergedBase, erdMode, documentContext, documentationSettings), ...mergedBase]
+        ? [...buildConsolidatedResult(mergedBase, erdMode, documentContext, documentationSettings), ...mergedBase]
         : mergedBase;
 
       setResults(nextResults);
@@ -634,6 +724,26 @@ export default function App() {
     applyDocumentationSettings(nextSettings);
   }, [applyDocumentationSettings, documentationSettings]);
 
+  const handleSecurityRoleFilterToggle = useCallback((key: keyof DocumentationSettings['securityRoleFilters']) => {
+    const nextSettings: DocumentationSettings = {
+      ...documentationSettings,
+      securityRoleFilters: {
+        ...documentationSettings.securityRoleFilters,
+        [key]: !documentationSettings.securityRoleFilters[key],
+      },
+    };
+
+    applyDocumentationSettings(nextSettings);
+  }, [applyDocumentationSettings, documentationSettings]);
+
+  const handleSeparateDiagramsDocumentToggle = useCallback(() => {
+    const nextSettings: DocumentationSettings = {
+      ...documentationSettings,
+      separateDiagramsDocument: !documentationSettings.separateDiagramsDocument,
+    };
+    applyDocumentationSettings(nextSettings);
+  }, [applyDocumentationSettings, documentationSettings]);
+
   const handleAttributeSelectionModeChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     const nextSettings: DocumentationSettings = {
       ...documentationSettings,
@@ -695,7 +805,10 @@ export default function App() {
       result.solution.metadata.displayName || result.solution.metadata.uniqueName,
       'solution',
     );
-    saveAs(blob, `${safeName}-documentation.md`);
+    const suffix = result.isConsolidated
+      ? (result.isDiagramCompanion ? '-summary-diagrams.md' : '-summary.md')
+      : (result.isDiagramCompanion ? '-documentation-diagrams.md' : '-documentation.md');
+    saveAs(blob, `${safeName}${suffix}`);
   }, [results, activeIdx]);
 
   /**
@@ -711,7 +824,9 @@ export default function App() {
         result.solution.metadata.displayName || result.solution.metadata.uniqueName,
         fallback,
       );
-      const suffix = result.isConsolidated ? '-summary.md' : '-documentation.md';
+      const suffix = result.isConsolidated
+        ? (result.isDiagramCompanion ? '-summary-diagrams.md' : '-summary.md')
+        : (result.isDiagramCompanion ? '-documentation-diagrams.md' : '-documentation.md');
       zip.file(`${safeName}${suffix}`, result.markdown);
     });
 
@@ -1030,6 +1145,8 @@ export default function App() {
                   </label>
                 </div>
 
+                <h4 className={styles.optionsSubheading}>Table Options</h4>
+
                 <label className={styles.contextField}>
                   <span>Manual Attributes (comma-separated schema names)</span>
                   <input
@@ -1098,6 +1215,39 @@ export default function App() {
                       onChange={() => handleMetadataToggle('includeMetadataDiagnosticInfo')}
                     />
                     <span>Include Metadata Source Diagnostics</span>
+                  </label>
+                </div>
+
+                <h4 className={styles.optionsSubheading}>Security Role Options</h4>
+
+                <div className={styles.scopeGrid}>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.securityRoleFilters.onlyTablesInCurrentSolution}
+                      onChange={() => handleSecurityRoleFilterToggle('onlyTablesInCurrentSolution')}
+                    />
+                    <span>Only Include Tables in Current Solution</span>
+                  </label>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.securityRoleFilters.onlyCustomTables}
+                      onChange={() => handleSecurityRoleFilterToggle('onlyCustomTables')}
+                    />
+                    <span>Only Include Custom Tables in Security Roles</span>
+                  </label>
+                </div>
+
+                <h4 className={styles.optionsSubheading}>Diagram Options</h4>
+                <div className={styles.scopeGrid}>
+                  <label className={styles.scopeItem}>
+                    <input
+                      type="checkbox"
+                      checked={documentationSettings.separateDiagramsDocument}
+                      onChange={handleSeparateDiagramsDocumentToggle}
+                    />
+                    <span>Generate Companion Diagrams Document</span>
                   </label>
                 </div>
 

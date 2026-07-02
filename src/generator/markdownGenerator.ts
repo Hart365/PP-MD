@@ -86,10 +86,17 @@ export interface DocumentationMetadataSettings {
   manuallySelectedAttributes: string[];
 }
 
+export interface DocumentationSecurityRoleFilters {
+  onlyTablesInCurrentSolution: boolean;
+  onlyCustomTables: boolean;
+}
+
 export interface DocumentationSettings {
   detailLevel: DocumentationDetailLevel;
   scope: DocumentationScopeSettings;
   metadata: DocumentationMetadataSettings;
+  securityRoleFilters: DocumentationSecurityRoleFilters;
+  separateDiagramsDocument: boolean;
 }
 
 export const DEFAULT_DOCUMENTATION_SETTINGS: DocumentationSettings = {
@@ -113,6 +120,11 @@ export const DEFAULT_DOCUMENTATION_SETTINGS: DocumentationSettings = {
     attributeSelectionMode: 'all',
     manuallySelectedAttributes: [],
   },
+  securityRoleFilters: {
+    onlyTablesInCurrentSolution: false,
+    onlyCustomTables: false,
+  },
+  separateDiagramsDocument: false,
 };
 
 export interface DocumentContext {
@@ -398,7 +410,26 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
         : DEFAULT_DOCUMENTATION_SETTINGS.metadata.attributeSelectionMode,
       manuallySelectedAttributes: manualAttributes,
     },
+    securityRoleFilters: {
+      onlyTablesInCurrentSolution: settings?.securityRoleFilters?.onlyTablesInCurrentSolution ?? DEFAULT_DOCUMENTATION_SETTINGS.securityRoleFilters.onlyTablesInCurrentSolution,
+      onlyCustomTables: settings?.securityRoleFilters?.onlyCustomTables ?? DEFAULT_DOCUMENTATION_SETTINGS.securityRoleFilters.onlyCustomTables,
+    },
+    separateDiagramsDocument: settings?.separateDiagramsDocument ?? DEFAULT_DOCUMENTATION_SETTINGS.separateDiagramsDocument,
   };
+}
+
+function looksLikeCustomTableName(name: string | undefined): boolean {
+  if (!name) return false;
+  // Dataverse custom table logical/entity-set names use publisher_prefix_name.
+  return /^[a-z0-9]+_[a-z0-9_]+$/i.test(name.trim());
+}
+
+function isLikelyCustomTable(entity: EntityDefinition): boolean {
+  if (entity.isCustom) return true;
+  if ((entity.objectTypeCode ?? 0) >= 10000) return true;
+  if (looksLikeCustomTableName(entity.logicalName)) return true;
+  if (looksLikeCustomTableName(entity.entitySetName)) return true;
+  return false;
 }
 
 function maxDefinedNumber(...values: Array<number | undefined>): number | undefined {
@@ -480,6 +511,69 @@ function parseRolePrivilege(privilegeName: string): { operation: PrivilegeOperat
   };
   if (!opMap[operation]) return undefined;
   return { operation: opMap[operation], table };
+}
+
+interface SecurityRolePrivilegeMatrix {
+  role: SecurityRoleDefinition;
+  matrix: Map<string, Record<PrivilegeOperation, number>>;
+  privilegeCount: number;
+}
+
+function buildSecurityRolePrivilegeMatrices(
+  roles: SecurityRoleDefinition[],
+  entities: EntityDefinition[],
+  filters: DocumentationSecurityRoleFilters,
+): SecurityRolePrivilegeMatrix[] {
+  const solutionTableNames = new Set<string>();
+  const customTableNames = new Set<string>();
+
+  entities.forEach((entity) => {
+    const logical = entity.logicalName.toLowerCase();
+    solutionTableNames.add(logical);
+    if (entity.entitySetName) {
+      solutionTableNames.add(entity.entitySetName.toLowerCase());
+    }
+
+    if (isLikelyCustomTable(entity)) {
+      customTableNames.add(logical);
+      if (entity.entitySetName) {
+        customTableNames.add(entity.entitySetName.toLowerCase());
+      }
+    }
+  });
+
+  return sortByLabel(roles, (role) => role.displayName || role.name)
+    .map((role) => {
+      const matrix = new Map<string, Record<PrivilegeOperation, number>>();
+      let privilegeCount = 0;
+
+      role.privileges.forEach((priv) => {
+        const parsed = parseRolePrivilege(priv.privilegeName);
+        if (!parsed) return;
+        if (filters.onlyTablesInCurrentSolution && !solutionTableNames.has(parsed.table)) return;
+        if (filters.onlyCustomTables && !customTableNames.has(parsed.table)) return;
+
+        if (!matrix.has(parsed.table)) {
+          matrix.set(parsed.table, {
+            Create: 0,
+            Read: 0,
+            Write: 0,
+            Delete: 0,
+            Append: 0,
+            AppendTo: 0,
+            Assign: 0,
+            Share: 0,
+            Unshare: 0,
+          });
+        }
+
+        const row = matrix.get(parsed.table)!;
+        row[parsed.operation] = Math.max(row[parsed.operation], priv.depth);
+        privilegeCount += 1;
+      });
+
+      return { role, matrix, privilegeCount };
+    });
 }
 
 function processStepDescription(step: ProcessStep): string {
@@ -961,6 +1055,11 @@ function generateTableOfContents(solution: ParsedSolution, settings: Documentati
   const lines: string[] = [heading(2, 'Table of Contents'), ''];
   const documentedApps = solution.apps.filter(isDocumentedApp);
   const includeDetailedSections = settings.detailLevel === 'detailed';
+  const securityRoleMatrices = buildSecurityRolePrivilegeMatrices(
+    solution.securityRoles,
+    solution.entities,
+    settings.securityRoleFilters,
+  );
 
   const sections: Array<{ label: string; count: number }> = [
     { label: 'Solution Dependencies',          count: solution.metadata.dependencies.length },
@@ -979,7 +1078,7 @@ function generateTableOfContents(solution: ParsedSolution, settings: Documentati
     { label: 'Custom APIs',                    count: includeDetailedSections ? (solution.customApis?.length ?? 0) : 0 },
     { label: 'Offline Profiles',               count: includeDetailedSections ? (solution.offlineProfiles?.length ?? 0) : 0 },
     { label: 'Web Resources',                  count: includeDetailedSections ? solution.webResources.length : 0 },
-    { label: 'Security Roles',                 count: settings.scope.security ? solution.securityRoles.length : 0 },
+    { label: 'Security Roles',                 count: settings.scope.security ? securityRoleMatrices.length : 0 },
     { label: 'Column Level Security Profiles', count: settings.scope.security ? solution.fieldSecurityProfiles.length : 0 },
     { label: 'Connection References',          count: settings.scope.integration ? solution.connectionReferences.length : 0 },
     { label: 'Environment Variables',          count: settings.scope.integration ? solution.environmentVariables.length : 0 },
@@ -2405,77 +2504,59 @@ function generateSecuritySection(
   roles: SecurityRoleDefinition[],
   profiles: FieldSecurityProfileDefinition[],
   entityMap: Map<string, string>,
+  entities: EntityDefinition[],
   attributeDisplayMap: Map<string, string>,
+  securityRoleFilters: DocumentationSecurityRoleFilters,
 ): string {
   if (roles.length === 0 && profiles.length === 0) return '';
 
   const lines: string[] = [];
+  const roleMatrices = buildSecurityRolePrivilegeMatrices(roles, entities, securityRoleFilters);
 
-  if (roles.length > 0) {
+  if (roleMatrices.length > 0) {
     lines.push(heading(2, 'Security Roles'));
     lines.push('');
     lines.push('| Role Name | Privileges |');
     lines.push('|-----------|-----------|');
-    sortByLabel(roles, (role) => role.displayName || role.name).forEach((role) => {
+    roleMatrices.forEach(({ role, privilegeCount }) => {
       lines.push(
         `| ${mdEscape(role.displayName || role.name)} ` +
-        `| ${role.privileges.length} |`,
+        `| ${privilegeCount} |`,
       );
     });
     lines.push('');
 
-    sortByLabel(roles, (role) => role.displayName || role.name).forEach((role) => {
-      if (role.privileges.length > 0) {
-        lines.push(heading(3, role.displayName || role.name));
-        lines.push('');
+    roleMatrices.forEach(({ role, matrix }) => {
+      lines.push(heading(3, role.displayName || role.name));
+      lines.push('');
 
-        // Privilege matrix by operation per table
-        const matrix = new Map<string, Record<PrivilegeOperation, number>>();
-        role.privileges.forEach((priv) => {
-          const parsed = parseRolePrivilege(priv.privilegeName);
-          if (!parsed) return;
-          if (!matrix.has(parsed.table)) {
-            matrix.set(parsed.table, {
-              Create: 0,
-              Read: 0,
-              Write: 0,
-              Delete: 0,
-              Append: 0,
-              AppendTo: 0,
-              Assign: 0,
-              Share: 0,
-              Unshare: 0,
-            });
-          }
-          const row = matrix.get(parsed.table)!;
-          row[parsed.operation] = Math.max(row[parsed.operation], priv.depth);
-        });
+      lines.push(heading(4, 'Privilege Matrix'));
+      lines.push('');
+      lines.push('| Table | Logical Name | Create | Read | Write | Delete | Append | Append To | Assign | Share | Unshare |');
+      lines.push('|-------|--------------|--------|------|-------|--------|--------|-----------|--------|-------|---------|');
 
-        if (matrix.size > 0) {
-          lines.push(heading(4, 'Privilege Matrix'));
-          lines.push('');
-          lines.push('| Table | Logical Name | Create | Read | Write | Delete | Append | Append To | Assign | Share | Unshare |');
-          lines.push('|-------|--------------|--------|------|-------|--------|--------|-----------|--------|-------|---------|');
-
-          sortByLabel(Array.from(matrix.entries()), ([table]) => table).forEach(([table, ops]) => {
-            const tableDisplayName = entityMap.get(table.toLowerCase()) || humanizeEntityName(table);
-            lines.push(
-              `| ${mdEscape(tableDisplayName)} ` +
-              `| \`${mdEscape(table)}\` ` +
-              `| ${accessDepthBadge(ops.Create)} ` +
-              `| ${accessDepthBadge(ops.Read)} ` +
-              `| ${accessDepthBadge(ops.Write)} ` +
-              `| ${accessDepthBadge(ops.Delete)} ` +
-              `| ${accessDepthBadge(ops.Append)} ` +
-              `| ${accessDepthBadge(ops.AppendTo)} ` +
-              `| ${accessDepthBadge(ops.Assign)} ` +
-              `| ${accessDepthBadge(ops.Share)} ` +
-              `| ${accessDepthBadge(ops.Unshare)} |`,
-            );
-          });
-          lines.push('');
-        }
+      const matrixRows = sortByLabel(Array.from(matrix.entries()), ([table]) => table);
+      if (matrixRows.length === 0) {
+        lines.push('| _No table privileges matched the active filters for this role._ | – | – | – | – | – | – | – | – | – | – |');
       }
+
+      matrixRows.forEach(([table, ops]) => {
+        const tableDisplayName = entityMap.get(table.toLowerCase()) || humanizeEntityName(table);
+        lines.push(
+          `| ${mdEscape(tableDisplayName)} ` +
+          `| \`${mdEscape(table)}\` ` +
+          `| ${accessDepthBadge(ops.Create)} ` +
+          `| ${accessDepthBadge(ops.Read)} ` +
+          `| ${accessDepthBadge(ops.Write)} ` +
+          `| ${accessDepthBadge(ops.Delete)} ` +
+          `| ${accessDepthBadge(ops.Append)} ` +
+          `| ${accessDepthBadge(ops.AppendTo)} ` +
+          `| ${accessDepthBadge(ops.Assign)} ` +
+          `| ${accessDepthBadge(ops.Share)} ` +
+          `| ${accessDepthBadge(ops.Unshare)} |`,
+        );
+      });
+      lines.push('');
     });
   }
 
@@ -2758,6 +2839,163 @@ export function generateMarkdown(
   return renderMarkdownDocument(buildSolutionOutputSections(solution, options), { addBackToTopLinks: true });
 }
 
+function splitMarkdownSections(markdown: string): string[] {
+  const lines = markdown.split('\n');
+  const sections: string[] = [];
+  let current: string[] = [];
+  let inCodeFence = false;
+
+  lines.forEach((line) => {
+    if (line.startsWith('```')) {
+      inCodeFence = !inCodeFence;
+    }
+
+    if (!inCodeFence && /^##\s+/.test(line) && current.length > 0) {
+      sections.push(current.join('\n').trimEnd());
+      current = [line];
+      return;
+    }
+
+    current.push(line);
+  });
+
+  if (current.length > 0) sections.push(current.join('\n').trimEnd());
+  return sections;
+}
+
+function removeMermaidBlocks(markdown: string): string {
+  const lines = markdown.split('\n');
+  const output: string[] = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!line.startsWith('```mermaid')) {
+      output.push(line);
+      continue;
+    }
+
+    // Remove diagram-specific heading directly above a Mermaid block.
+    let scan = output.length - 1;
+    while (scan >= 0 && output[scan].trim() === '') scan -= 1;
+    if (scan >= 0 && /^#{3,6}\s+.*diagram/i.test(output[scan])) {
+      output.splice(scan, output.length - scan);
+      while (output.length > 0 && output[output.length - 1].trim() === '') {
+        output.pop();
+      }
+      output.push('');
+    }
+
+    i += 1;
+    while (i < lines.length && !lines[i].startsWith('```')) i += 1;
+  }
+
+  return output.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+}
+
+function insertCompanionNotice(markdown: string): string {
+  const lines = markdown.split('\n');
+  const tocIndex = lines.findIndex((line) => /^##\s+Table of Contents\s*$/.test(line));
+  if (tocIndex === -1) {
+    return [
+      '> Diagram content has been moved to a companion diagrams document.',
+      '',
+      markdown,
+    ].join('\n').trimEnd();
+  }
+
+  let insertAt = tocIndex + 1;
+  while (insertAt < lines.length && lines[insertAt].trim() !== '') insertAt += 1;
+  while (insertAt < lines.length && lines[insertAt].trim() === '') insertAt += 1;
+
+  const notice = [
+    '> Diagram content has been moved to a companion diagrams document generated alongside this file.',
+    '',
+  ];
+
+  lines.splice(insertAt, 0, ...notice);
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+}
+
+function appendBackToTopLinksForRawMarkdown(markdown: string): string {
+  const lines = markdown.split('\n');
+  const sectionStarts: number[] = [];
+  let inCodeFence = false;
+
+  lines.forEach((line, index) => {
+    if (line.startsWith('```')) {
+      inCodeFence = !inCodeFence;
+      return;
+    }
+    if (!inCodeFence && /^##\s+/.test(line)) {
+      sectionStarts.push(index);
+    }
+  });
+
+  const inserts: Array<{ index: number }> = [];
+
+  sectionStarts.forEach((start, idx) => {
+    const title = lines[start].replace(/^##\s+/, '').trim();
+    if (title.toLowerCase() === 'table of contents') return;
+
+    const nextStart = idx < sectionStarts.length - 1 ? sectionStarts[idx + 1] : lines.length;
+    const sectionText = lines.slice(start, nextStart).join('\n');
+    if (sectionText.includes('[Back to Top](#table-of-contents)')) return;
+
+    let insertAt = nextStart;
+    while (insertAt > start + 1 && lines[insertAt - 1].trim() === '') {
+      insertAt -= 1;
+    }
+
+    inserts.push({ index: insertAt });
+  });
+
+  inserts
+    .sort((a, b) => b.index - a.index)
+    .forEach(({ index }) => {
+      lines.splice(index, 0, '', '[Back to Top](#table-of-contents)', '');
+    });
+
+  return lines.join('\n');
+}
+
+export function splitMarkdownForDiagramCompanion(markdown: string): { mainMarkdown: string; companionMarkdown: string } {
+  const hasDiagrams = /```mermaid[\s\S]*?```/m.test(markdown);
+  if (!hasDiagrams) {
+    return { mainMarkdown: markdown, companionMarkdown: '' };
+  }
+
+  const sections = splitMarkdownSections(markdown);
+  const headerSection = sections.find((section) => /^#\s+/.test(section.trimStart())) ?? '';
+  const diagramSections = sections.filter((section) => /```mermaid[\s\S]*?```/m.test(section));
+
+  const companionLines: string[] = [];
+  if (headerSection) {
+    companionLines.push(headerSection, '');
+  }
+  companionLines.push(
+    '## Table of Contents',
+    '',
+  );
+
+  diagramSections.forEach((section) => {
+    const titleMatch = section.match(/^##\s+(.+)$/m);
+    const title = titleMatch?.[1]?.trim() || 'Diagrams';
+    companionLines.push(`- [${title}](${headingAnchor(title)})`);
+  });
+
+  companionLines.push('');
+  companionLines.push('> Companion diagrams document containing Mermaid visuals extracted from the main documentation.', '');
+  diagramSections.forEach((section) => {
+    companionLines.push(section.trimEnd(), '');
+  });
+
+  const companionMarkdown = appendBackToTopLinksForRawMarkdown(companionLines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd());
+  const mainWithoutDiagrams = removeMermaidBlocks(markdown);
+  const mainMarkdown = appendBackToTopLinksForRawMarkdown(insertCompanionNotice(mainWithoutDiagrams));
+
+  return { mainMarkdown, companionMarkdown };
+}
+
 function buildSolutionOutputSections(
   solution: ParsedSolution,
   options: MarkdownGenerationOptions,
@@ -2812,7 +3050,14 @@ function buildSolutionOutputSections(
     createOutputSection(
       'security-roles',
       documentationSettings.scope.security
-        ? generateSecuritySection(solution.securityRoles, solution.fieldSecurityProfiles, entityMap, attributeDisplayMap)
+        ? generateSecuritySection(
+          solution.securityRoles,
+          solution.fieldSecurityProfiles,
+          entityMap,
+          solution.entities,
+          attributeDisplayMap,
+          documentationSettings.securityRoleFilters,
+        )
         : '',
     ),
     createOutputSection(

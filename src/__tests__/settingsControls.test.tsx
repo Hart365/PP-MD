@@ -69,6 +69,9 @@ describe('settings controls and migration', () => {
     render(<App />);
 
     fireEvent.click(await screen.findByLabelText(/include audit info/i));
+    fireEvent.click(screen.getByLabelText(/only include tables in current solution/i));
+    fireEvent.click(screen.getByLabelText(/only include custom tables in security roles/i));
+    fireEvent.click(screen.getByLabelText(/generate companion diagrams document/i));
     fireEvent.change(screen.getByLabelText(/select attribute selection mode/i), {
       target: { value: 'manually-selected' },
     });
@@ -83,10 +86,13 @@ describe('settings controls and migration', () => {
     await waitFor(() => {
       const saved = JSON.parse(localStorage.getItem('pp-md-doc-configurations') || '[]') as Array<Record<string, unknown>>;
       expect(saved.length).toBe(1);
-      expect(saved[0].schemaVersion).toBe(2);
+      expect(saved[0].schemaVersion).toBe(3);
       expect((saved[0].documentationSettings as { metadata?: { includeAuditInfo?: boolean } }).metadata?.includeAuditInfo).toBe(false);
       expect((saved[0].documentationSettings as { metadata?: { attributeSelectionMode?: string } }).metadata?.attributeSelectionMode).toBe('manually-selected');
       expect((saved[0].documentationSettings as { metadata?: { manuallySelectedAttributes?: string[] } }).metadata?.manuallySelectedAttributes).toEqual(['new_name', 'new_status']);
+      expect((saved[0].documentationSettings as { securityRoleFilters?: { onlyTablesInCurrentSolution?: boolean; onlyCustomTables?: boolean } }).securityRoleFilters?.onlyTablesInCurrentSolution).toBe(true);
+      expect((saved[0].documentationSettings as { securityRoleFilters?: { onlyTablesInCurrentSolution?: boolean; onlyCustomTables?: boolean } }).securityRoleFilters?.onlyCustomTables).toBe(true);
+      expect((saved[0].documentationSettings as { separateDiagramsDocument?: boolean }).separateDiagramsDocument).toBe(true);
     });
   });
 });

@@ -1,6 +1,7 @@
 import {
   DEFAULT_DOCUMENTATION_SETTINGS,
   generateMarkdown,
+  splitMarkdownForDiagramCompanion,
 } from '../generator/markdownGenerator';
 import {
   AppType,
@@ -179,6 +180,246 @@ describe('generateMarkdown', () => {
     expect(markdown).toContain('`new_status`');
     expect(markdown).not.toContain('`new_name`');
     expect(markdown).not.toContain('`new_virtualscore`');
+  });
+
+  it('filters security role permissions to solution tables and custom tables', () => {
+    const solutionWithRoles: ParsedSolution = {
+      ...sampleSolution,
+      entities: [
+        ...sampleSolution.entities,
+        {
+          name: 'account',
+          logicalName: 'account',
+          displayName: 'Account',
+          isCustom: false,
+          attributes: [],
+          relationships: [],
+        },
+      ],
+      securityRoles: [
+        {
+          name: 'sales_role',
+          displayName: 'Sales Role',
+          privileges: [
+            { privilegeName: 'prvReadnew_project', depth: 4 },
+            { privilegeName: 'prvWritenew_project', depth: 2 },
+            { privilegeName: 'prvReadaccount', depth: 1 },
+            { privilegeName: 'prvReadexternaltable', depth: 4 },
+          ],
+        },
+      ],
+    };
+
+    const solutionTablesOnlyMarkdown = generateMarkdown(solutionWithRoles, {
+      documentationSettings: {
+        ...DEFAULT_DOCUMENTATION_SETTINGS,
+        securityRoleFilters: {
+          onlyTablesInCurrentSolution: true,
+          onlyCustomTables: false,
+        },
+      },
+    });
+
+    const solutionTablesOnlySecuritySection = solutionTablesOnlyMarkdown.split('## Security Roles')[1] ?? '';
+
+    expect(solutionTablesOnlyMarkdown).toContain('| Sales Role | 3 |');
+    expect(solutionTablesOnlySecuritySection).toContain('`new_project`');
+    expect(solutionTablesOnlySecuritySection).toContain('`account`');
+    expect(solutionTablesOnlySecuritySection).not.toContain('`externaltable`');
+
+    const customTablesOnlyMarkdown = generateMarkdown(solutionWithRoles, {
+      documentationSettings: {
+        ...DEFAULT_DOCUMENTATION_SETTINGS,
+        securityRoleFilters: {
+          onlyTablesInCurrentSolution: false,
+          onlyCustomTables: true,
+        },
+      },
+    });
+
+    const customTablesOnlySecuritySection = customTablesOnlyMarkdown.split('## Security Roles')[1] ?? '';
+
+    expect(customTablesOnlyMarkdown).toContain('| Sales Role | 2 |');
+    expect(customTablesOnlySecuritySection).toContain('`new_project`');
+    expect(customTablesOnlySecuritySection).not.toContain('`account`');
+    expect(customTablesOnlySecuritySection).not.toContain('`externaltable`');
+
+    const solutionAndCustomTablesMarkdown = generateMarkdown(solutionWithRoles, {
+      documentationSettings: {
+        ...DEFAULT_DOCUMENTATION_SETTINGS,
+        securityRoleFilters: {
+          onlyTablesInCurrentSolution: true,
+          onlyCustomTables: true,
+        },
+      },
+    });
+
+    const solutionAndCustomTablesSecuritySection = solutionAndCustomTablesMarkdown.split('## Security Roles')[1] ?? '';
+
+    expect(solutionAndCustomTablesMarkdown).toContain('| Sales Role | 2 |');
+    expect(solutionAndCustomTablesSecuritySection).toContain('`new_project`');
+    expect(solutionAndCustomTablesSecuritySection).not.toContain('`account`');
+    expect(solutionAndCustomTablesSecuritySection).not.toContain('`externaltable`');
+  });
+
+  it('matches security role privilege tables by entity logical name and entity set name', () => {
+    const solutionWithEntitySetRole: ParsedSolution = {
+      ...sampleSolution,
+      entities: [
+        {
+          ...sampleSolution.entities[0],
+          logicalName: 'new_project',
+          entitySetName: 'new_projects',
+          isCustom: true,
+        },
+      ],
+      securityRoles: [
+        {
+          name: 'project_reader',
+          displayName: 'Project Reader',
+          privileges: [
+            { privilegeName: 'prvReadnew_projects', depth: 4 },
+          ],
+        },
+      ],
+    };
+
+    const markdown = generateMarkdown(solutionWithEntitySetRole, {
+      documentationSettings: {
+        ...DEFAULT_DOCUMENTATION_SETTINGS,
+        securityRoleFilters: {
+          onlyTablesInCurrentSolution: true,
+          onlyCustomTables: true,
+        },
+      },
+    });
+
+    const securitySection = markdown.split('## Security Roles')[1] ?? '';
+
+    expect(markdown).toContain('| Project Reader | 1 |');
+    expect(securitySection).toContain('`new_projects`');
+  });
+
+  it('keeps custom tables in security filtering even when IsCustomEntity is unavailable', () => {
+    const solutionWithCustomNameOnly: ParsedSolution = {
+      ...sampleSolution,
+      entities: [
+        {
+          ...sampleSolution.entities[0],
+          logicalName: 'abc_orders',
+          name: 'abc_orders',
+          displayName: 'Orders',
+          isCustom: false,
+        },
+      ],
+      securityRoles: [
+        {
+          name: 'ops_role',
+          displayName: 'Operations Role',
+          privileges: [
+            { privilegeName: 'prvReadabc_orders', depth: 4 },
+            { privilegeName: 'prvReadaccount', depth: 2 },
+          ],
+        },
+      ],
+    };
+
+    const markdown = generateMarkdown(solutionWithCustomNameOnly, {
+      documentationSettings: {
+        ...DEFAULT_DOCUMENTATION_SETTINGS,
+        securityRoleFilters: {
+          onlyTablesInCurrentSolution: false,
+          onlyCustomTables: true,
+        },
+      },
+    });
+
+    const securitySection = markdown.split('## Security Roles')[1] ?? '';
+    expect(markdown).toContain('| Operations Role | 1 |');
+    expect(securitySection).toContain('`abc_orders`');
+    expect(securitySection).not.toContain('`account`');
+  });
+
+  it('moves Mermaid diagrams into a companion markdown document', () => {
+    const markdown = generateMarkdown(
+      {
+        ...sampleSolution,
+        entities: [
+          {
+            ...sampleSolution.entities[0],
+            logicalName: 'account',
+            name: 'account',
+            displayName: 'Account',
+          },
+        ],
+        processes: [
+          {
+            name: 'Account Sync Flow',
+            uniqueName: 'contoso_account_sync',
+            category: ProcessCategory.PowerAutomateFlow,
+            primaryEntity: 'account',
+            steps: [
+              {
+                id: 'trigger',
+                name: 'When a row is added',
+                stepType: 'Trigger',
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    const { mainMarkdown, companionMarkdown } = splitMarkdownForDiagramCompanion(markdown);
+
+    expect(mainMarkdown).not.toContain('```mermaid');
+    expect(mainMarkdown).toContain('companion diagrams document');
+    expect(companionMarkdown).toContain('## Table of Contents');
+    expect(companionMarkdown).toContain('```mermaid');
+    expect(companionMarkdown).toContain('[Back to Top](#table-of-contents)');
+  });
+
+  it('keeps security roles section when filters remove all table privileges', () => {
+    const solutionWithSystemRoleOnly: ParsedSolution = {
+      ...sampleSolution,
+      entities: [
+        {
+          name: 'account',
+          logicalName: 'account',
+          displayName: 'Account',
+          isCustom: false,
+          attributes: [],
+          relationships: [],
+        },
+      ],
+      securityRoles: [
+        {
+          name: 'system_reader',
+          displayName: 'System Reader',
+          privileges: [
+            { privilegeName: 'prvReadaccount', depth: 4 },
+            { privilegeName: 'prvWriteaccount', depth: 2 },
+          ],
+        },
+      ],
+    };
+
+    const markdown = generateMarkdown(solutionWithSystemRoleOnly, {
+      documentationSettings: {
+        ...DEFAULT_DOCUMENTATION_SETTINGS,
+        securityRoleFilters: {
+          onlyTablesInCurrentSolution: false,
+          onlyCustomTables: true,
+        },
+      },
+    });
+
+    const securitySection = markdown.split('## Security Roles')[1] ?? '';
+
+    expect(markdown).toContain('## Security Roles');
+    expect(markdown).toContain('| System Reader | 0 |');
+    expect(securitySection).toContain('_No table privileges matched the active filters for this role._');
+    expect(securitySection).not.toContain('`account`');
   });
 
   it('excludes default columns from table docs while preserving relationship columns in relationship documentation and ERD', () => {

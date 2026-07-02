@@ -314,6 +314,13 @@
   gap: 0.55rem;
 }
 
+.optionsSubheading {
+  margin: 0.1rem 0 0;
+  font-size: 1.02rem;
+  font-weight: 650;
+  color: var(--color-text-primary);
+}
+
 .scopeItem {
   display: inline-flex;
   align-items: center;
