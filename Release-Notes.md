@@ -7,10 +7,7 @@
 ### Fixes
 
 - Fixed a regression where the Security Roles section could disappear when active security-role filters removed all matching table privileges.
-- Security roles are now always listed when roles exist in the solution, even if filtered privilege rows are empty.
 - Added an explicit placeholder row in empty filtered matrices: _No table privileges matched the active filters for this role._
-- Fixed security role table filtering logic so **Only Include Tables in Current Solution** matches all tables present in the solution, not only custom tables.
-- Preserved **Only Include Custom Tables in Security Roles** as an additional filter, so when both toggles are enabled the result is the expected intersection.
 - Added support for matching role privilege table names against both Dataverse logical names and entity-set names to reduce false exclusions.
 - Hardened custom-table detection for security role filters so custom tables are retained even when Dataverse exports do not reliably mark `IsCustomEntity`.
 - Added fallback custom-table heuristics using object type code and Dataverse naming patterns for logical names and entity-set names.
