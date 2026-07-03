@@ -28,15 +28,15 @@ PP-MD is a Windows desktop application that turns Microsoft Power Platform solut
 
 Documentation. Usually a task people try to avoid, often difficult to get consistent output, and not fun to include all of the details you need. Then add in updating ADO, Jira etc. with the latest notes and people run for the hills.
 
-This is where PP-MD steps in to the mix. Load the app, configure your document information (project, sprint, client etc) and document options, and then select solution ZIP files and click "Generate Documentation" to get a full suite of Markdown documentation automatically and consistently.
+This is where PP-MD steps in to the mix. Load the app, configure or load your document information (project, sprint, client etc) and document options, and then select solution ZIP files and click "Generate Documentation" to get a full suite of Markdown documentation automatically and consistently.
 
 PP-MD parses you solution zip files and generates documentation that covers:
 
-- An auto-generated **Entity Relationship Diagram** (ERD) rendered as a Mermaid diagram
+- An auto-generated **Entity Relationship Diagram** (ERD) rendered as a Mermaid diagram with the ability to have diagrams in a companion document to the core solution document
 - Every **Dataverse table** with its columns, data types, and relationships
 - All **Power Automate Flows** and classic workflows, with step-by-step details
 - **Model-driven and Canvas apps**, including the tables they reference
-- **Security roles** and **field security profiles** with privilege depth matrices
+- **Security roles** and **field security profiles** with privilege depth matrices and option to only include custom tables and/or tables in the current solution
 - **Connection references** and **environment variables**
 - **Plugins** and SDK message processing steps
 - **Reports**, **dashboards**, **web resources**, and **email templates**
@@ -62,7 +62,7 @@ Multiple solutions can be loaded at once and reviewed across all loaded solution
 | Web Resources | JS, HTML, CSS, and other web resources with type and description |
 | Security | Role privilege matrices and field security profiles |
 | Integration | Connection references (connector type) and environment variables |
-| Reports & Dashboards | SSRS reports and dashboards |
+| Reports & Dashboards | Native reports and dashboards |
 | Plugins | Plugin assemblies and SDK message processing steps (stage, mode, message, entity) |
 | Warnings | Parser warnings for components that could not be fully parsed |
 
