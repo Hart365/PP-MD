@@ -9,6 +9,8 @@ on:
 jobs:
   quality-gates:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout repository
