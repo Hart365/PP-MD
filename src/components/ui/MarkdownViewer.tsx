@@ -5,7 +5,7 @@
  * tables, and copy/export actions.
  */
 
-import { useState, useCallback, useRef, type MouseEvent, type ReactNode } from 'react';
+import { useState, useCallback, useRef, useMemo, type MouseEvent, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -15,6 +15,7 @@ import styles from './MarkdownViewer.module.css';
 export interface MarkdownViewerProps {
   markdown: string;
   title?: string;
+  fileName?: string;
   onExport?: () => void;
 }
 
@@ -44,7 +45,7 @@ function slugifyHeading(children: ReactNode): string {
 /**
  * Renders Markdown with diagram support, raw/rendered toggle, and export.
  */
-export function MarkdownViewer({ markdown, title, onExport }: MarkdownViewerProps) {
+export function MarkdownViewer({ markdown, title, fileName, onExport }: MarkdownViewerProps) {
   const [showRaw, setShowRaw] = useState(false);
   const [copyMsg, setCopyMsg] = useState('');
   const contentRef = useRef<HTMLDivElement>(null);
@@ -90,7 +91,7 @@ export function MarkdownViewer({ markdown, title, onExport }: MarkdownViewerProp
     };
   };
 
-  const components = {
+  const components = useMemo(() => ({
     code: ({ className, children, ...props }: any) => {
       const lang = /language-(\w+)/.exec(className)?.[1] ?? '';
       if (lang !== 'mermaid') {
@@ -120,7 +121,20 @@ export function MarkdownViewer({ markdown, title, onExport }: MarkdownViewerProp
         <table {...props}>{children}</table>
       </div>
     ),
-  };
+  }), [scrollToHeading]);
+
+  const markdownHasRawHtml = useMemo(() => /<\/?[a-z][\s\S]*>/i.test(markdown), [markdown]);
+  const rehypePlugins = useMemo(() => (markdownHasRawHtml ? [rehypeRaw] : []), [markdownHasRawHtml]);
+
+  const renderedMarkdown = useMemo(() => (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={rehypePlugins}
+      components={components}
+    >
+      {markdown}
+    </ReactMarkdown>
+  ), [components, markdown, rehypePlugins]);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -155,7 +169,14 @@ export function MarkdownViewer({ markdown, title, onExport }: MarkdownViewerProp
       aria-label={title ? `Documentation for ${title}` : 'Generated documentation'}
     >
       <div className={styles.toolbar} role="toolbar" aria-label="Documentation actions">
-        {title && <h2 className={styles.viewerTitle}>{title}</h2>}
+        {title && (
+          <h2
+            className={styles.viewerTitle}
+            title={fileName || title}
+          >
+            {title}
+          </h2>
+        )}
         <div className={styles.actions}>
           <button
             type="button"
@@ -201,13 +222,7 @@ export function MarkdownViewer({ markdown, title, onExport }: MarkdownViewerProp
           className={`${styles.content} markdown-body`}
           onClickCapture={handleContentClickCapture}
         >
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeRaw]}
-            components={components}
-          >
-            {markdown}
-          </ReactMarkdown>
+          {renderedMarkdown}
         </div>
       )}
     </section>

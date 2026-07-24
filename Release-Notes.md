@@ -2,6 +2,30 @@
 
 ---
 
+## Version 1.1.8
+
+### Fixes
+
+- Removed the **Status** column from Processes & Automation summaries and details because this value cannot be reliably reported from Dataverse-connected exports.
+- Improved Power Automate flow display-name normalization for partially condensed names so labels like `Customerandtriageteamwhenanewprocure` render with readable spacing.
+
+---
+
+## Version 1.1.7
+
+### Fixes
+
+- Security Role permission columns now render with color-coded labels and matching circle indicators (⚫ 🔵 🟢 🟡 🟠 🔴) to make access depth easier to scan.
+- Power Automate flow display names now consistently prefer JSON display metadata, preventing corrupted names with removed spacing.
+- Processes & Automation summary has been split into automation-type summary tables with relevant columns per type.
+
+### Improvements
+
+- Markdown filenames now follow `<Solution Name>.md` and `<Solution Name> - Diagrams.md`.
+- The Markdown Viewer title now exposes the active filename as a hover tooltip to help identify truncated sidebar entries.
+
+---
+
 ## Versions 1.1.3 to 1.1.5
 
 ### Fixes

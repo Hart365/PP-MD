@@ -188,11 +188,22 @@ function validateDocumentationSettings(settings: DocumentationSettings): { norma
   return { normalized, issues };
 }
 
-function toSafeMarkdownBaseName(rawName: string | undefined | null, fallback: string): string {
+function toSafeMarkdownFileName(rawName: string | undefined | null, fallback: string, isDiagramFile = false): string {
   const source = (rawName || fallback).trim();
-  return source
-    .replace(/[^\w\s.-]/g, '')
-    .replace(/\s+/g, '_');
+  const withoutReserved = source
+    .replace(/[<>:"/\\|?*]/g, ' ');
+  const withoutControl = Array.from(withoutReserved)
+    .filter((char) => {
+      const codePoint = char.codePointAt(0) ?? 0;
+      return codePoint >= 32 && codePoint !== 127;
+    })
+    .join('');
+  const safeBase = withoutControl
+    .replace(/\s+/g, ' ')
+    .replace(/[. ]+$/g, '')
+    .trim();
+  const baseName = safeBase || fallback;
+  return `${baseName}${isDiagramFile ? ' - Diagrams' : ''}.md`;
 }
 
 function solutionDisplayName(solution: ParsedSolution): string {
@@ -213,6 +224,14 @@ function sortFilesByName(files: File[]): File[] {
     undefined,
     { numeric: true, sensitivity: 'base' },
   ));
+}
+
+function markdownFileNameForSolution(solution: ParsedSolution, isDiagramFile = false): string {
+  return toSafeMarkdownFileName(
+    solution.metadata.displayName || solution.metadata.uniqueName,
+    'Solution',
+    isDiagramFile,
+  );
 }
 
 function readSavedConfigurations(): SavedDocumentConfiguration[] {
@@ -280,7 +299,7 @@ function buildConsolidatedResult(
     return [{
       solution: aggregated,
       markdown,
-      fileName: 'consolidated-summary.md',
+      fileName: markdownFileNameForSolution(aggregated, false),
       isConsolidated: true,
     }];
   }
@@ -289,7 +308,7 @@ function buildConsolidatedResult(
   const items: SolutionResult[] = [{
     solution: aggregated,
     markdown: mainMarkdown,
-    fileName: 'consolidated-summary.md',
+    fileName: markdownFileNameForSolution(aggregated, false),
     isConsolidated: true,
   }];
 
@@ -303,7 +322,7 @@ function buildConsolidatedResult(
         },
       },
       markdown: companionMarkdown,
-      fileName: 'consolidated-summary-diagrams.md',
+      fileName: markdownFileNameForSolution(aggregated, true),
       isConsolidated: true,
       isDiagramCompanion: true,
     });
@@ -326,6 +345,7 @@ function rebuildResults(
         return [{
           ...entry,
           markdown,
+          fileName: markdownFileNameForSolution(entry.solution, false),
           isDiagramCompanion: false,
         }];
       }
@@ -334,11 +354,11 @@ function rebuildResults(
       const items: SolutionResult[] = [{
         ...entry,
         markdown: mainMarkdown,
+        fileName: markdownFileNameForSolution(entry.solution, false),
         isDiagramCompanion: false,
       }];
 
       if (companionMarkdown.trim().length > 0) {
-        const baseName = entry.fileName.replace(/\.[^.]+$/u, '');
         items.push({
           ...entry,
           solution: {
@@ -349,7 +369,7 @@ function rebuildResults(
             },
           },
           markdown: companionMarkdown,
-          fileName: `${baseName}-diagrams.md`,
+          fileName: markdownFileNameForSolution(entry.solution, true),
           isDiagramCompanion: true,
         });
       }
@@ -614,12 +634,11 @@ export default function App() {
         const markdown = generateMarkdown(solution, { erdMode, documentContext, documentationSettings });
 
         if (!documentationSettings.separateDiagramsDocument) {
-          newResults.push({ solution, markdown, fileName: file.name });
+          newResults.push({ solution, markdown, fileName: markdownFileNameForSolution(solution, false) });
         } else {
           const { mainMarkdown, companionMarkdown } = splitMarkdownForDiagramCompanion(markdown);
-          newResults.push({ solution, markdown: mainMarkdown, fileName: file.name });
+          newResults.push({ solution, markdown: mainMarkdown, fileName: markdownFileNameForSolution(solution, false) });
           if (companionMarkdown.trim().length > 0) {
-            const baseName = file.name.replace(/\.[^.]+$/u, '');
             newResults.push({
               solution: {
                 ...solution,
@@ -629,7 +648,7 @@ export default function App() {
                 },
               },
               markdown: companionMarkdown,
-              fileName: `${baseName}-diagrams.md`,
+              fileName: markdownFileNameForSolution(solution, true),
               isDiagramCompanion: true,
             });
           }
@@ -801,14 +820,7 @@ export default function App() {
     const result = results[activeIdx];
     if (!result) return;
     const blob = new Blob([result.markdown], { type: 'text/markdown;charset=utf-8' });
-    const safeName = toSafeMarkdownBaseName(
-      result.solution.metadata.displayName || result.solution.metadata.uniqueName,
-      'solution',
-    );
-    const suffix = result.isConsolidated
-      ? (result.isDiagramCompanion ? '-summary-diagrams.md' : '-summary.md')
-      : (result.isDiagramCompanion ? '-documentation-diagrams.md' : '-documentation.md');
-    saveAs(blob, `${safeName}${suffix}`);
+    saveAs(blob, result.fileName);
   }, [results, activeIdx]);
 
   /**
@@ -819,15 +831,9 @@ export default function App() {
 
     const zip = new JSZip();
     results.forEach((result, idx) => {
-      const fallback = result.isConsolidated ? 'consolidated' : `solution_${idx + 1}`;
-      const safeName = toSafeMarkdownBaseName(
-        result.solution.metadata.displayName || result.solution.metadata.uniqueName,
-        fallback,
-      );
-      const suffix = result.isConsolidated
-        ? (result.isDiagramCompanion ? '-summary-diagrams.md' : '-summary.md')
-        : (result.isDiagramCompanion ? '-documentation-diagrams.md' : '-documentation.md');
-      zip.file(`${safeName}${suffix}`, result.markdown);
+      const fallbackName = `Solution ${idx + 1}${result.isDiagramCompanion ? ' - Diagrams' : ''}.md`;
+      const fileName = result.fileName?.trim() || fallbackName;
+      zip.file(fileName, result.markdown);
     });
 
     const blob = await zip.generateAsync({ type: 'blob' });
@@ -932,7 +938,7 @@ export default function App() {
         {/* Sidebar (only when we have results) */}
         {hasResults && (
           <SolutionSidebar
-            solutions={results.map((r) => r.solution)}
+            items={results.map((r) => ({ solution: r.solution, fileName: r.fileName }))}
             activeIndex={activeIdx}
             onSelect={handleSelectResult}
             onReset={handleReset}
@@ -1354,6 +1360,7 @@ export default function App() {
                 <MarkdownViewer
                   markdown={activeResult.markdown}
                   title={activeResult.solution.metadata.displayName || activeResult.solution.metadata.uniqueName}
+                  fileName={activeResult.fileName}
                   onExport={handleExport}
                 />
               )}

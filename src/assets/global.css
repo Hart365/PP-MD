@@ -258,6 +258,22 @@ pre code {
 /* --------------------------------------------------------------------------
    Tables (inside Markdown output)
    -------------------------------------------------------------------------- */
+.markdown-body {
+  color: var(--color-text-primary);
+}
+
+.markdown-body p,
+.markdown-body li,
+.markdown-body td,
+.markdown-body strong,
+.markdown-body em {
+  color: var(--color-text-primary);
+}
+
+.markdown-body a {
+  color: var(--color-accent);
+}
+
 .markdown-body table {
   border-collapse: collapse;
   width: 100%;

@@ -603,6 +603,89 @@ function stripTrailingGuid(value: string): string {
   return value.replace(/[\s_-]?[0-9a-f]{8}(?:[\s_-]?[0-9a-f]{4}){3}[\s_-]?[0-9a-f]{12}$/i, '').trim();
 }
 
+function splitCondensedToken(token: string): string {
+  const raw = token.trim();
+  if (!raw) return raw;
+
+  const leading = raw.match(/^[^A-Za-z0-9]+/)?.[0] ?? '';
+  const trailing = raw.match(/[^A-Za-z0-9]+$/)?.[0] ?? '';
+  const core = raw.slice(leading.length, raw.length - trailing.length);
+  if (!core || core.length < 12) return raw;
+
+  const hasLongLowerRun = /[a-z]{8,}/.test(core);
+  if (!hasLongLowerRun) return raw;
+
+  const lower = core.toLowerCase();
+  const dictionary = new Set([
+    'a', 'an', 'and', 'as', 'at', 'by', 'for', 'from', 'in', 'into', 'new', 'of', 'on', 'or', 'the', 'to', 'when', 'with',
+    'add', 'added', 'approval', 'approve', 'case', 'change', 'create', 'created', 'customer', 'delete', 'email', 'notify',
+    'procure', 'process', 'record', 'request', 'send', 'team', 'triage', 'update', 'updated',
+  ]);
+
+  const bestByIndex: Array<string[] | undefined> = new Array(lower.length + 1);
+  bestByIndex[0] = [];
+
+  for (let index = 0; index < lower.length; index += 1) {
+    const base = bestByIndex[index];
+    if (!base) continue;
+
+    for (let end = index + 1; end <= lower.length; end += 1) {
+      const candidate = lower.slice(index, end);
+      if (!dictionary.has(candidate)) continue;
+
+      const next = [...base, candidate];
+      const existing = bestByIndex[end];
+      if (!existing || next.length < existing.length) {
+        bestByIndex[end] = next;
+      }
+    }
+  }
+
+  const segmented = bestByIndex[lower.length];
+  if (!segmented || segmented.length < 3) return raw;
+
+  const hasConnectorWord = segmented.some((word) => ['a', 'an', 'and', 'for', 'from', 'in', 'of', 'on', 'or', 'the', 'to', 'when', 'with'].includes(word));
+  if (!hasConnectorWord) return raw;
+
+  const rebuilt = segmented
+    .map((word, i) => (i === 0 && /^[A-Z]/.test(core) ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+    .join(' ');
+
+  return `${leading}${rebuilt}${trailing}`;
+}
+
+function normalizeCondensedSegments(value: string): string {
+  return value
+    .split(/(\s+)/)
+    .map((part) => (/^\s+$/.test(part) ? part : splitCondensedToken(part)))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeDisplayNameForReadability(displayName: string | undefined, fallbackName: string): string {
+  const trimmedDisplay = stripTrailingGuid((displayName ?? '').trim());
+  const fallback = stripTrailingGuid((fallbackName || '').trim());
+
+  if (!trimmedDisplay) {
+    return fallback ? humanizeIdentifier(fallback) : '';
+  }
+
+  const condensedDisplay = trimmedDisplay.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const condensedFallback = fallback.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  const displayLooksCompressed = /[a-z][A-Z]/.test(trimmedDisplay)
+    || /[_-]/.test(trimmedDisplay)
+    || (fallback.length > 0 && condensedDisplay === condensedFallback && /[_-]|[a-z][A-Z]/.test(fallback));
+
+  if (displayLooksCompressed) {
+    const basis = /[_-]|[a-z][A-Z]/.test(fallback) ? fallback : trimmedDisplay;
+    return normalizeCondensedSegments(humanizeIdentifier(basis));
+  }
+
+  return normalizeCondensedSegments(trimmedDisplay);
+}
+
 function connectorDisplayFromId(connectorId: string): string {
   if (!connectorId) return '';
   const idNoQuery = connectorId.split('?')[0];
@@ -2128,18 +2211,23 @@ function extractWorkflowSteps(activityNode: Record<string, unknown>): ProcessSte
  */
 function parseFlowDefinition(
   flowJson: Record<string, unknown>,
-): { steps: ProcessStep[]; connectors: string[]; triggerDescription: string; displayName: string | undefined } {
+): { steps: ProcessStep[]; connectors: string[]; triggerDescription: string; displayName: string | undefined; triggerEntity: string | undefined } {
   const steps: ProcessStep[] = [];
   const connectors = new Set<string>();
   let triggerDescription = '';
   let displayName: string | undefined;
+  let triggerEntity: string | undefined;
 
   try {
     // Real Power Platform solution exports wrap everything under 'properties'
     const props = (flowJson['properties'] ?? {}) as Record<string, unknown>;
 
     // Prefer display name from properties
-    const propDisplayName = xmlStr(props, 'displayName') || xmlStr(props, 'DisplayName');
+    const propDisplayName =
+      xmlStr(props, 'displayName') ||
+      xmlStr(props, 'DisplayName') ||
+      xmlStr(flowJson, 'displayName') ||
+      xmlStr(flowJson, 'DisplayName');
     if (propDisplayName) displayName = propDisplayName;
 
     // Handle three formats:
@@ -2165,12 +2253,27 @@ function parseFlowDefinition(
     });
 
     // Parse trigger — humanize key names like "When_a_row_is_added" → "When a row is added"
+    // Also extract the primary entity (table) the trigger fires on when available.
     Object.entries(triggers).forEach(([triggerName, triggerDef]) => {
       const td = triggerDef as Record<string, unknown>;
       const triggerType = xmlStr(td, 'type');
-      const apiId = ((td['inputs'] as Record<string, unknown>)?.['host'] as Record<string, unknown>)?.['apiId'] as string | undefined;
+      const inputs = (td['inputs'] ?? {}) as Record<string, unknown>;
+      const apiId = ((inputs['host'] ?? {}) as Record<string, unknown>)['apiId'] as string | undefined;
       if (apiId) connectors.add(connectorDisplayFromId(apiId));
       triggerDescription = `${humanizeIdentifier(triggerName)} (${triggerType || '–'})`;
+
+      // Extract the Dataverse table the trigger fires on (Dataverse connector triggers).
+      if (!triggerEntity) {
+        const params = (inputs['parameters'] ?? inputs['body'] ?? {}) as Record<string, unknown>;
+        const rawEntity =
+          (params['entityName'] as string | undefined) ||
+          (params['tableName'] as string | undefined) ||
+          (params['entity_name'] as string | undefined) ||
+          (params['table_name'] as string | undefined) ||
+          (inputs['entityName'] as string | undefined) ||
+          (inputs['tableName'] as string | undefined);
+        if (rawEntity) triggerEntity = rawEntity.toLowerCase().trim();
+      }
     });
 
     // Parse actions recursively
@@ -2258,6 +2361,7 @@ function parseFlowDefinition(
     connectors: Array.from(connectors),
     triggerDescription,
     displayName,
+    triggerEntity,
   };
 }
 
@@ -2641,7 +2745,7 @@ export async function parseSolutionZip(
 
       processes.push({
         name:          uniqueName,
-        displayName:   displayN,
+        displayName:   normalizeDisplayNameForReadability(displayN, uniqueName),
         uniqueName,
         category,
         primaryEntity,
@@ -3132,6 +3236,83 @@ export async function parseSolutionZip(
     }
   }
 
+  // ── Step 3b: Additional web resources from WebResources/ folder ─────────
+  // Power Platform can also store web resources as individual files in a
+  // WebResources/ folder within the solution ZIP.  Supplement what was found
+  // in customizations.xml with anything discovered here.
+  {
+    const knownWrNames = new Set(webResources.map((wr) => (wr.schemaName || wr.name).toLowerCase()));
+
+    /** Derive a WebResourceType from a file extension. */
+    const typeFromExtension = (ext: string): WebResourceType => {
+      const map: Record<string, WebResourceType> = {
+        html: WebResourceType.HTML,
+        htm:  WebResourceType.HTML,
+        css:  WebResourceType.CSS,
+        js:   WebResourceType.JavaScript,
+        ts:   WebResourceType.TypeScript,
+        xml:  WebResourceType.XML,
+        png:  WebResourceType.PNG,
+        jpg:  WebResourceType.JPG,
+        jpeg: WebResourceType.JPG,
+        gif:  WebResourceType.GIF,
+        xap:  WebResourceType.XAP,
+        xsl:  WebResourceType.XSL,
+        xslt: WebResourceType.XSL,
+        ico:  WebResourceType.ICO,
+        svg:  WebResourceType.SVG,
+        resx: WebResourceType.Resx,
+      };
+      return map[ext.toLowerCase()] ?? WebResourceType.Unknown;
+    };
+
+    for (const [path, entry] of Object.entries(zip.files)) {
+      if (entry.dir) continue;
+      const lowerPath = path.toLowerCase();
+      if (!lowerPath.startsWith('webresources/')) continue;
+
+      const fileName = path.split('/').pop() ?? path;
+      const extMatch = fileName.match(/\.([^.]+)$/);
+      const ext = extMatch?.[1] ?? '';
+      const resourceType = typeFromExtension(ext);
+
+      // Use full path as schema name so we can deduplicate against customizations.xml entries
+      const schemaName = path.replace(/^WebResources\//i, '');
+      const schemaKey  = schemaName.toLowerCase();
+      const nameKey    = fileName.toLowerCase();
+
+      if (knownWrNames.has(schemaKey) || knownWrNames.has(nameKey)) continue;
+
+      let content: string | undefined;
+      let contentLength: number | undefined;
+      try {
+        if ([WebResourceType.JavaScript, WebResourceType.TypeScript, WebResourceType.HTML,
+             WebResourceType.CSS, WebResourceType.XML, WebResourceType.XSL,
+             WebResourceType.SVG, WebResourceType.Resx].includes(resourceType)) {
+          content = await entry.async('string');
+          contentLength = content.length;
+        } else {
+          const buf = await entry.async('uint8array');
+          contentLength = buf.byteLength;
+        }
+      } catch {
+        // best-effort — skip content if unreadable
+      }
+
+      knownWrNames.add(schemaKey);
+      webResources.push({
+        name:             fileName,
+        schemaName,
+        displayName:      stripTrailingGuid(fileName.replace(/\.[^.]+$/, '')) || fileName,
+        resourceType,
+        enabledForMobile: undefined,
+        availableOffline: undefined,
+        content,
+        contentLength,
+      } as WebResourceDefinition);
+    }
+  }
+
   // ── Step 4: Canvas apps from CanvasApps/ folder ─────────────────────────
   report(70);
   const canvasEntries = getEntriesWithPrefix(zip, 'CanvasApps/');
@@ -3571,7 +3752,9 @@ export async function parseSolutionZip(
       try {
         const jsonStr  = await entry.async('string');
         const flowJson = JSON.parse(jsonStr) as Record<string, unknown>;
-        const flowName = path.split('/').pop()?.replace(/\.json$/, '') ?? path;
+        // Normalise file name: strip curly braces that PP sometimes wraps around GUIDs
+        const rawName = path.split('/').pop()?.replace(/\.json$/, '') ?? path;
+        const flowName = rawName.replace(/^\{|\}$/g, '');
         flowJsonMap.set(flowName, flowJson);
       } catch {
         warnings.push(`Could not parse flow JSON: ${path}`);
@@ -3584,25 +3767,34 @@ export async function parseSolutionZip(
   const connectionRefCandidates = Array.from(new Set(connectionReferences.flatMap((cr) => [cr.name, cr.displayName].filter((value): value is string => !!value))));
   const envVarCandidates = Array.from(new Set(environmentVariables.flatMap((ev) => [ev.schemaName, ev.displayName].filter((value): value is string => !!value))));
 
+  /** Normalise a process name for matching: lowercase + strip curly braces + strip trailing GUID. */
+  const normForMatch = (s: string) => stripTrailingGuid(s.replace(/^\{|\}$/g, '')).toLowerCase();
+
   flowJsonMap.forEach((flowJson, flowName) => {
-    const { steps, connectors, triggerDescription, displayName: jsonDisplayName } = parseFlowDefinition(flowJson);
+    const { steps, connectors, triggerDescription, displayName: jsonDisplayName, triggerEntity } = parseFlowDefinition(flowJson);
     const usedConnectionRefs = findFlowMatches(flowJson, connectionRefCandidates);
     const usedEnvVars = findFlowMatches(flowJson, envVarCandidates);
 
     // Prefer the display name embedded in the JSON properties (most human-readable)
     const flowNameWithoutGuid = stripTrailingGuid(flowName);
-    const resolvedDisplayName = jsonDisplayName || humanizeIdentifier(flowNameWithoutGuid || flowName);
+    const resolvedDisplayName = normalizeDisplayNameForReadability(
+      jsonDisplayName,
+      flowNameWithoutGuid || flowName,
+    ) || humanizeIdentifier(flowNameWithoutGuid || flowName);
 
     const existingIdx = processes.findIndex((p) => {
-      const pUnique  = p.uniqueName.toLowerCase();
+      const pUnique        = p.uniqueName.toLowerCase();
       const pUniqueTrimmed = stripTrailingGuid(p.uniqueName).toLowerCase();
-      const pDisplay = (p.displayName || '').toLowerCase();
-      const jFile    = flowName.toLowerCase();
-      const jFileTrimmed = stripTrailingGuid(flowName).toLowerCase();
-      const jDisplay = resolvedDisplayName.toLowerCase();
+      const pUniqueNorm    = normForMatch(p.uniqueName);
+      const pDisplay       = (p.displayName || '').toLowerCase();
+      const jFile          = flowName.toLowerCase();
+      const jFileTrimmed   = stripTrailingGuid(flowName).toLowerCase();
+      const jFileNorm      = normForMatch(flowName);
+      const jDisplay       = resolvedDisplayName.toLowerCase();
       return (
         pUnique === jFile ||
         pUniqueTrimmed === jFileTrimmed ||
+        pUniqueNorm === jFileNorm ||
         pDisplay === jDisplay ||
         pUnique === jDisplay ||
         pUniqueTrimmed === jDisplay ||
@@ -3627,13 +3819,21 @@ export async function parseSolutionZip(
       if (triggerDescription) existing.flowTrigger = triggerDescription;
       if (usedConnectionRefs.length > 0) existing.flowConnectionReferences = usedConnectionRefs;
       if (usedEnvVars.length > 0) existing.flowEnvironmentVariables = usedEnvVars;
-      // Use the JSON display name if the existing one is just the internal unique name
-      if (jsonDisplayName && (!existing.displayName || existing.displayName === existing.uniqueName)) {
-        existing.displayName = jsonDisplayName;
+      // Always prefer JSON display names for modern flows because they preserve
+      // user-facing spacing/casing better than workflow metadata exports.
+      if (jsonDisplayName) {
+        existing.displayName = normalizeDisplayNameForReadability(jsonDisplayName, existing.uniqueName || flowName);
       }
-      if (existing.displayName) existing.displayName = stripTrailingGuid(existing.displayName);
+      if (existing.displayName) {
+        existing.displayName = normalizeDisplayNameForReadability(existing.displayName, existing.uniqueName || flowName);
+      }
       existing.flowDefinition = flowJson;
-      existing.category       = ProcessCategory.PowerAutomateFlow;
+      // A flow JSON in the Workflows/ folder always means this is a Power Automate Flow.
+      existing.category = ProcessCategory.PowerAutomateFlow;
+      // Set primary entity from trigger if not already known
+      if (triggerEntity && !existing.primaryEntity) {
+        existing.primaryEntity = triggerEntity;
+      }
       // Bubble up entity references from flow steps to relatedEntities
       const collectExistingStepEntities = (stps: ProcessStep[]): string[] =>
         stps.flatMap((s) => [
@@ -3641,16 +3841,25 @@ export async function parseSolutionZip(
           ...collectExistingStepEntities(s.children ?? []),
         ]);
       const stepEntities = collectExistingStepEntities(steps);
-      if (stepEntities.length > 0) {
-        const merged = [...(existing.relatedEntities ?? []), ...stepEntities, existing.primaryEntity].filter(Boolean) as string[];
-        existing.relatedEntities = Array.from(new Set(merged));
-      }
+      const allRelated = [...(existing.relatedEntities ?? []), ...stepEntities, existing.primaryEntity, triggerEntity]
+        .filter((v): v is string => !!v);
+      existing.relatedEntities = Array.from(new Set(allRelated));
     } else {
+      const collectNewEntities = (stps: ProcessStep[]): string[] =>
+        stps.flatMap((s) => [
+          ...(s.referencedEntities ?? []),
+          ...collectNewEntities(s.children ?? []),
+        ]);
+      const relatedEntities = Array.from(new Set([
+        ...(triggerEntity ? [triggerEntity] : []),
+        ...collectNewEntities(steps),
+      ]));
       processes.push({
         name:           flowName,
         displayName:    resolvedDisplayName,
         uniqueName:     flowName,
         category:       ProcessCategory.PowerAutomateFlow,
+        primaryEntity:  triggerEntity,
         isActivated:    parseProcessActivationStatus(flowJson),
         steps,
         flowDefinition: flowJson,
@@ -3658,14 +3867,7 @@ export async function parseSolutionZip(
         flowConnectors: connectors,
         flowConnectionReferences: usedConnectionRefs,
         flowEnvironmentVariables: usedEnvVars,
-        relatedEntities: (() => {
-          const collectNewEntities = (stps: ProcessStep[]): string[] =>
-            stps.flatMap((s) => [
-              ...(s.referencedEntities ?? []),
-              ...collectNewEntities(s.children ?? []),
-            ]);
-          return Array.from(new Set(collectNewEntities(steps)));
-        })(),
+        relatedEntities,
       } as ProcessDefinition);
     }
   });
@@ -3797,7 +3999,7 @@ export async function parseSolutionZip(
       process.primaryEntity = process.relatedEntities[0];
     }
     if (process.displayName) {
-      process.displayName = stripTrailingGuid(process.displayName);
+      process.displayName = normalizeDisplayNameForReadability(process.displayName, process.uniqueName || process.name);
     }
   });
 

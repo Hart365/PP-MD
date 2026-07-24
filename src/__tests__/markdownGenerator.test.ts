@@ -1,5 +1,6 @@
 import {
   DEFAULT_DOCUMENTATION_SETTINGS,
+  generateConsolidatedMarkdown,
   generateMarkdown,
   splitMarkdownForDiagramCompanion,
 } from '../generator/markdownGenerator';
@@ -130,6 +131,49 @@ describe('generateMarkdown', () => {
 
     expect(markdown).not.toContain('## Processes & Automation');
     expect(markdown).not.toContain('## Power Apps');
+  });
+
+  it('splits process summaries by automation type with type-specific columns', () => {
+    const markdown = generateMarkdown(
+      {
+        ...sampleSolution,
+        processes: [
+          {
+            name: 'account-sync',
+            displayName: 'Account Sync',
+            uniqueName: 'account-sync',
+            category: ProcessCategory.PowerAutomateFlow,
+            primaryEntity: 'account',
+            relatedEntities: ['account'],
+            flowConnectors: ['Microsoft Dataverse'],
+            flowConnectionReferences: ['cr_dataverse'],
+            flowEnvironmentVariables: ['contoso_FeatureFlag'],
+            flowTrigger: 'When a row is added',
+            isActivated: true,
+            steps: [],
+          },
+          {
+            name: 'legacy-workflow',
+            displayName: 'Legacy Workflow',
+            uniqueName: 'legacy-workflow',
+            category: ProcessCategory.Workflow,
+            primaryEntity: 'account',
+            relatedEntities: ['account'],
+            triggerType: 'OnDemand',
+            runAs: 'Owner',
+            scope: 'Organization',
+            isActivated: false,
+            steps: [],
+          },
+        ],
+      },
+    );
+
+    expect(markdown).toContain('### Power Automate Flow Summary');
+    expect(markdown).toContain('### Workflow Summary');
+    expect(markdown).toContain('| Name | Primary Table | Referenced Tables | Connectors | Connection References | Environment Variables | Trigger |');
+    expect(markdown).toContain('| Name | Primary Table | Referenced Tables | Trigger | Run As | Scope |');
+    expect(markdown).not.toContain('| Name | Category | Primary Table | Referenced Tables | Connectors | Connection References | Environment Variables | Trigger | Status |');
   });
 
   it('applies metadata filters for virtual exclusion and option-set-focused mode', () => {
@@ -374,9 +418,28 @@ describe('generateMarkdown', () => {
 
     expect(mainMarkdown).not.toContain('```mermaid');
     expect(mainMarkdown).toContain('companion diagrams document');
+    expect(mainMarkdown).not.toContain('#### Relationship Diagram');
+    expect(mainMarkdown).not.toContain('This diagram shows the process and the solution components it depends on.');
     expect(companionMarkdown).toContain('## Table of Contents');
     expect(companionMarkdown).toContain('```mermaid');
     expect(companionMarkdown).toContain('[Back to Top](#table-of-contents)');
+  });
+
+  it('includes table-of-contents anchor in consolidated markdown for Back to Top links', () => {
+    const markdown = generateConsolidatedMarkdown([
+      sampleSolution,
+      {
+        ...sampleSolution,
+        metadata: {
+          ...sampleSolution.metadata,
+          uniqueName: 'contoso_ops',
+          displayName: 'Contoso Ops',
+        },
+      },
+    ]);
+
+    expect(markdown).toContain('## Table of Contents');
+    expect(markdown).toContain('[Back to Top](#table-of-contents)');
   });
 
   it('keeps security roles section when filters remove all table privileges', () => {
@@ -420,6 +483,46 @@ describe('generateMarkdown', () => {
     expect(markdown).toContain('| System Reader | 0 |');
     expect(securitySection).toContain('_No table privileges matched the active filters for this role._');
     expect(securitySection).not.toContain('`account`');
+  });
+
+  it('renders security role permission cells with colored-circle badges', () => {
+    const markdown = generateMarkdown(
+      {
+        ...sampleSolution,
+        entities: [
+          {
+            ...sampleSolution.entities[0],
+            logicalName: 'account',
+            name: 'account',
+            displayName: 'Account',
+          },
+        ],
+        securityRoles: [
+          {
+            name: 'auditor',
+            displayName: 'Auditor',
+            privileges: [
+              { privilegeName: 'prvReadaccount', depth: 4 },
+              { privilegeName: 'prvWriteaccount', depth: 1 },
+            ],
+          },
+        ],
+      },
+      {
+        documentationSettings: {
+          ...DEFAULT_DOCUMENTATION_SETTINGS,
+          securityRoleFilters: {
+            onlyTablesInCurrentSolution: true,
+            onlyCustomTables: false,
+          },
+        },
+      },
+    );
+
+    expect(markdown).toContain('Permission Depth Legend:');
+    expect(markdown).toContain('🟠 Organization');
+    expect(markdown).toContain('🔵 User');
+    expect(markdown).toContain('<span style="color:');
   });
 
   it('excludes default columns from table docs while preserving relationship columns in relationship documentation and ERD', () => {

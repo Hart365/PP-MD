@@ -14,9 +14,14 @@
 import styles from './SolutionSidebar.module.css';
 import type { ParsedSolution } from '../types/solution';
 
+export interface SidebarSolutionItem {
+  solution: ParsedSolution;
+  fileName: string;
+}
+
 export interface SolutionSidebarProps {
   /** All successfully parsed solutions */
-  solutions: ParsedSolution[];
+  items: SidebarSolutionItem[];
   /** Index of the currently visible solution */
   activeIndex: number;
   /** Callback when the user selects a solution */
@@ -29,12 +34,12 @@ export interface SolutionSidebarProps {
  * Sidebar listing each parsed solution for navigation.
  */
 export function SolutionSidebar({
-  solutions,
+  items,
   activeIndex,
   onSelect,
   onReset,
 }: SolutionSidebarProps) {
-  if (solutions.length === 0) return null;
+  if (items.length === 0) return null;
 
   return (
     <nav
@@ -58,7 +63,7 @@ export function SolutionSidebar({
 
       {/* Solution list */}
       <ul className={styles.list} role="list">
-        {solutions.map((sol, idx) => {
+        {items.map(({ solution: sol, fileName }, idx) => {
           const isActive  = idx === activeIndex;
           const itemClass = [styles.item, isActive ? styles.active : ''].filter(Boolean).join(' ');
 
@@ -70,6 +75,7 @@ export function SolutionSidebar({
                 onClick={() => onSelect(idx)}
                 aria-current={isActive ? 'page' : undefined}
                 aria-label={`View documentation for ${sol.metadata.displayName}`}
+                title={fileName}
               >
                 <span className={styles.solIcon} aria-hidden="true">
                   {sol.metadata.isManaged ? '🔒' : '📄'}
@@ -87,18 +93,18 @@ export function SolutionSidebar({
       </ul>
 
       {/* Summary counts */}
-      {solutions[activeIndex] && (
+      {items[activeIndex] && (
         <div className={styles.summaryPanel} aria-label="Active solution component counts">
           <p className={styles.summaryTitle}>Components</p>
           <dl className={styles.summaryList}>
             {[
-              { label: 'Tables',      count: solutions[activeIndex].entities.length },
-              { label: 'Processes',   count: solutions[activeIndex].processes.length },
-              { label: 'Apps',        count: solutions[activeIndex].apps.length },
-              { label: 'Web Res.',    count: solutions[activeIndex].webResources.length },
-              { label: 'Plugins',     count: solutions[activeIndex].pluginAssemblies.length },
-              { label: 'Roles',       count: solutions[activeIndex].securityRoles.length },
-              { label: 'Env. Vars.',  count: solutions[activeIndex].environmentVariables.length },
+              { label: 'Tables',      count: items[activeIndex].solution.entities.length },
+              { label: 'Processes',   count: items[activeIndex].solution.processes.length },
+              { label: 'Apps',        count: items[activeIndex].solution.apps.length },
+              { label: 'Web Res.',    count: items[activeIndex].solution.webResources.length },
+              { label: 'Plugins',     count: items[activeIndex].solution.pluginAssemblies.length },
+              { label: 'Roles',       count: items[activeIndex].solution.securityRoles.length },
+              { label: 'Env. Vars.',  count: items[activeIndex].solution.environmentVariables.length },
             ]
               .filter((s) => s.count > 0)
               .map(({ label, count }) => (

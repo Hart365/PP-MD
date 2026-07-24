@@ -151,15 +151,6 @@ function mdEscape(text: string | undefined | null): string {
   return text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
 }
 
-function htmlEscape(text: string | undefined | null): string {
-  if (!text) return '';
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
 /**
  * Escapes characters that are special in Mermaid node labels:
  * quotation marks, angle brackets, and parentheses.
@@ -265,12 +256,6 @@ function appTypeLabel(appType: AppType): string {
   return labels[appType] ?? appType;
 }
 
-function processStatusLabel(status: boolean | undefined, withIcon = false): string {
-  if (status === undefined) return '';
-  if (withIcon) return status ? '✅ Active' : '⛔ Inactive';
-  return status ? 'Active' : 'Inactive';
-}
-
 function labelWithSchema(displayName: string | undefined | null, schemaName: string | undefined | null): string {
   const display = stripTrailingGuid(displayName).trim();
   const schema = stripTrailingGuid(schemaName).trim();
@@ -328,23 +313,23 @@ function resolveAttributeDisplayName(attributeName: string, attributeDisplayMap:
   return '';
 }
 
-function accessDepthBadge(depth: number): string {
-  const normalized = Math.max(0, Math.min(4, depth));
-  const stylesByDepth: Record<number, { label: string; background: string }> = {
-    0: { label: 'None', background: '#fee2e2' },
-    1: { label: 'User', background: '#fef9c3' },
-    2: { label: 'Business Unit', background: '#dbeafe' },
-    3: { label: 'Parent Child Business Unit', background: '#ede9fe' },
-    4: { label: 'Org', background: '#dcfce7' },
+function accessDepthVisualBadge(depth: number): string {
+  const normalized = Number.isFinite(depth) ? Math.max(0, Math.min(4, depth)) : -1;
+  const visualsByDepth: Record<number, { dot: string; color: string; label: string }> = {
+    0: { dot: '⚫', color: '#1f2937', label: 'None' },
+    1: { dot: '🔵', color: '#2563eb', label: 'User' },
+    2: { dot: '🟢', color: '#16a34a', label: 'Business Unit' },
+    3: { dot: '🟡', color: '#ca8a04', label: 'Parent-Child BU' },
+    4: { dot: '🟠', color: '#ea580c', label: 'Organization' },
+    [-1]: { dot: '🔴', color: '#dc2626', label: 'Unknown' },
   };
-  const value = stylesByDepth[normalized] ?? { label: String(normalized), background: '#e5e7eb' };
-  return `<span style="display:inline-block;padding:0.15rem 0.5rem;border-radius:0.4rem;background:${value.background};color:#1f2937;font-weight:600;">${htmlEscape(value.label)}</span>`;
+
+  const visual = visualsByDepth[normalized] ?? visualsByDepth[-1];
+  return `<span style="color:${visual.color};font-weight:600">${visual.dot} ${visual.label}</span>`;
 }
 
 function allowedBadge(allowed: boolean): string {
-  const label = allowed ? 'Allowed' : 'Not Allowed';
-  const background = allowed ? '#dcfce7' : '#fee2e2';
-  return `<span style="display:inline-block;padding:0.15rem 0.5rem;border-radius:0.4rem;background:${background};color:#1f2937;font-weight:600;">${label}</span>`;
+  return allowed ? '✅ Allowed' : '❌ Not Allowed';
 }
 
 function processTitle(proc: ProcessDefinition): string {
@@ -850,14 +835,14 @@ function generateDocumentContextSection(context: DocumentContext | undefined): s
 
   const lines: string[] = [];
 
-  lines.push('<table>');
-  lines.push(`<tr><td><strong>Client</strong></td><td>${htmlEscape(context?.client)}</td></tr>`);
-  lines.push(`<tr><td><strong>Contract</strong></td><td>${htmlEscape(context?.contract)}</td></tr>`);
-  lines.push(`<tr><td><strong>Contract ID/SoW</strong></td><td>${htmlEscape(context?.sow)}</td></tr>`);
-  lines.push(`<tr><td><strong>Project</strong></td><td>${htmlEscape(context?.project)}</td></tr>`);
-  lines.push(`<tr><td><strong>Sprint</strong></td><td>${htmlEscape(context?.sprint)}</td></tr>`);
-  lines.push(`<tr><td><strong>Release Date</strong></td><td>${htmlEscape(context?.releaseDate)}</td></tr>`);
-  lines.push('</table>');
+  lines.push('| Field | Value |');
+  lines.push('|-------|-------|');
+  lines.push(`| **Client** | ${mdEscape(context?.client)} |`);
+  lines.push(`| **Contract** | ${mdEscape(context?.contract)} |`);
+  lines.push(`| **Contract ID/SoW** | ${mdEscape(context?.sow)} |`);
+  lines.push(`| **Project** | ${mdEscape(context?.project)} |`);
+  lines.push(`| **Sprint** | ${mdEscape(context?.sprint)} |`);
+  lines.push(`| **Release Date** | ${mdEscape(context?.releaseDate)} |`);
   lines.push('');
 
   return lines.join('\n');
@@ -1852,27 +1837,64 @@ function generateProcessesSection(
     return Array.from(new Set(candidates.filter((candidate) => serialized.includes(candidate.toLowerCase()))));
   };
 
-  // Summary table
-  lines.push('| Name | Category | Primary Table | Referenced Tables | Connectors | Connection References | Environment Variables | Trigger | Status |');
-  lines.push('|------|----------|---------------|-------------------|------------|------------------------|-----------------------|---------|--------|');
+  // Summary tables split by automation type so each type can expose the most relevant columns.
+  const categoriesInOrder: ProcessCategory[] = [
+    ProcessCategory.PowerAutomateFlow,
+    ProcessCategory.BusinessProcessFlow,
+    ProcessCategory.Workflow,
+    ProcessCategory.BusinessRule,
+    ProcessCategory.Action,
+    ProcessCategory.CustomAction,
+    ProcessCategory.Dialog,
+  ];
 
-  sortedProcesses.forEach((proc) => {
-    const relatedTables = uniqueStrings([...(proc.relatedEntities ?? []), proc.primaryEntity].filter(Boolean) as string[]);
-    const usedRefs = (proc.flowConnectionReferences?.length ?? 0) > 0 ? proc.flowConnectionReferences! : flowMatches(proc.flowDefinition as object | undefined, refCandidates);
-    const usedEnvVars = (proc.flowEnvironmentVariables?.length ?? 0) > 0 ? proc.flowEnvironmentVariables! : flowMatches(proc.flowDefinition as object | undefined, envCandidates);
-    lines.push(
-      `| ${mdEscape(processTitle(proc))} ` +
-      `| ${processCategoryLabel(proc.category)} ` +
-      `| ${entityDisplayLabel(proc.primaryEntity, entityMap)} ` +
-      `| ${relatedTables.length > 0 ? relatedTables.map((table) => entityDisplayLabel(table, entityMap)).join(', ') : '–'} ` +
-      `| ${mdEscape(sortByLabel(proc.flowConnectors ?? [], (c) => c).join(', ')) || '–'} ` +
-      `| ${mdEscape(sortByLabel(usedRefs, (r) => r).join(', ')) || '–'} ` +
-      `| ${mdEscape(sortByLabel(usedEnvVars, (e) => e).join(', ')) || '–'} ` +
-      `| ${mdEscape(proc.triggerType || proc.flowTrigger || '–')} ` +
-      `| ${processStatusLabel(proc.isActivated, true)} |`,
-    );
+  categoriesInOrder.forEach((category) => {
+    const categoryProcesses = sortedProcesses.filter((proc) => proc.category === category);
+    if (categoryProcesses.length === 0) return;
+
+    lines.push(heading(3, `${processCategoryLabel(category)} Summary`));
+    lines.push('');
+
+    if (category === ProcessCategory.PowerAutomateFlow) {
+      lines.push('| Name | Primary Table | Referenced Tables | Connectors | Connection References | Environment Variables | Trigger |');
+      lines.push('|------|---------------|-------------------|------------|------------------------|-----------------------|---------|');
+
+      categoryProcesses.forEach((proc) => {
+        const relatedTables = uniqueStrings([...(proc.relatedEntities ?? []), proc.primaryEntity].filter(Boolean) as string[]);
+        const usedRefs = (proc.flowConnectionReferences?.length ?? 0) > 0 ? proc.flowConnectionReferences! : flowMatches(proc.flowDefinition as object | undefined, refCandidates);
+        const usedEnvVars = (proc.flowEnvironmentVariables?.length ?? 0) > 0 ? proc.flowEnvironmentVariables! : flowMatches(proc.flowDefinition as object | undefined, envCandidates);
+
+        lines.push(
+          `| ${mdEscape(processTitle(proc))} ` +
+          `| ${entityDisplayLabel(proc.primaryEntity, entityMap)} ` +
+          `| ${relatedTables.length > 0 ? relatedTables.map((table) => entityDisplayLabel(table, entityMap)).join('<br>') : '–'} ` +
+          `| ${mdEscape(sortByLabel(proc.flowConnectors ?? [], (c) => c).join(', ')) || '–'} ` +
+          `| ${mdEscape(sortByLabel(usedRefs, (r) => r).join(', ')) || '–'} ` +
+          `| ${mdEscape(sortByLabel(usedEnvVars, (e) => e).join(', ')) || '–'} ` +
+          `| ${mdEscape(proc.triggerType || proc.flowTrigger || '–')} |`,
+        );
+      });
+      lines.push('');
+      return;
+    }
+
+    lines.push('| Name | Primary Table | Referenced Tables | Trigger | Run As | Scope |');
+    lines.push('|------|---------------|-------------------|---------|--------|-------|');
+
+    categoryProcesses.forEach((proc) => {
+      const relatedTables = uniqueStrings([...(proc.relatedEntities ?? []), proc.primaryEntity].filter(Boolean) as string[]);
+      lines.push(
+        `| ${mdEscape(processTitle(proc))} ` +
+        `| ${entityDisplayLabel(proc.primaryEntity, entityMap)} ` +
+        `| ${relatedTables.length > 0 ? relatedTables.map((table) => entityDisplayLabel(table, entityMap)).join('<br>') : '–'} ` +
+        `| ${mdEscape(proc.triggerType || proc.flowTrigger || '–')} ` +
+        `| ${mdEscape(proc.runAs) || '–'} ` +
+        `| ${mdEscape(proc.scope) || '–'} |`,
+      );
+    });
+
+    lines.push('');
   });
-  lines.push('');
 
   // Detail per process
   sortedProcesses.forEach((proc) => {
@@ -1887,10 +1909,9 @@ function generateProcessesSection(
     lines.push('|----------|-------|');
     lines.push(`| **Category** | ${processCategoryLabel(proc.category)} |`);
     if (proc.primaryEntity) lines.push(`| **Primary Table** | ${entityDisplayLabel(proc.primaryEntity, entityMap)} |`);
-    if (relatedTables.length > 0) lines.push(`| **Referenced Tables** | ${relatedTables.map((table) => entityDisplayLabel(table, entityMap)).join(', ')} |`);
+    if (relatedTables.length > 0) lines.push(`| **Referenced Tables** | ${relatedTables.map((table) => entityDisplayLabel(table, entityMap)).join('<br>')} |`);
     if (proc.triggerType)   lines.push(`| **Trigger** | ${proc.triggerType} |`);
     if (proc.flowTrigger)   lines.push(`| **Flow Trigger** | ${mdEscape(proc.flowTrigger)} |`);
-    lines.push(`| **Status** | ${processStatusLabel(proc.isActivated)} |`);
     if (proc.runAs)         lines.push(`| **Run As** | ${proc.runAs} |`);
     if (proc.scope)         lines.push(`| **Scope** | ${proc.scope} |`);
 
@@ -2516,6 +2537,8 @@ function generateSecuritySection(
   if (roleMatrices.length > 0) {
     lines.push(heading(2, 'Security Roles'));
     lines.push('');
+    lines.push('**Permission Depth Legend:** ⚫ None · 🔵 User · 🟢 Business Unit · 🟡 Parent-Child BU · 🟠 Organization · 🔴 Unknown');
+    lines.push('');
     lines.push('| Role Name | Privileges |');
     lines.push('|-----------|-----------|');
     roleMatrices.forEach(({ role, privilegeCount }) => {
@@ -2545,15 +2568,15 @@ function generateSecuritySection(
         lines.push(
           `| ${mdEscape(tableDisplayName)} ` +
           `| \`${mdEscape(table)}\` ` +
-          `| ${accessDepthBadge(ops.Create)} ` +
-          `| ${accessDepthBadge(ops.Read)} ` +
-          `| ${accessDepthBadge(ops.Write)} ` +
-          `| ${accessDepthBadge(ops.Delete)} ` +
-          `| ${accessDepthBadge(ops.Append)} ` +
-          `| ${accessDepthBadge(ops.AppendTo)} ` +
-          `| ${accessDepthBadge(ops.Assign)} ` +
-          `| ${accessDepthBadge(ops.Share)} ` +
-          `| ${accessDepthBadge(ops.Unshare)} |`,
+          `| ${accessDepthVisualBadge(ops.Create)} ` +
+          `| ${accessDepthVisualBadge(ops.Read)} ` +
+          `| ${accessDepthVisualBadge(ops.Write)} ` +
+          `| ${accessDepthVisualBadge(ops.Delete)} ` +
+          `| ${accessDepthVisualBadge(ops.Append)} ` +
+          `| ${accessDepthVisualBadge(ops.AppendTo)} ` +
+          `| ${accessDepthVisualBadge(ops.Assign)} ` +
+          `| ${accessDepthVisualBadge(ops.Share)} ` +
+          `| ${accessDepthVisualBadge(ops.Unshare)} |`,
         );
       });
       lines.push('');
@@ -2874,11 +2897,27 @@ function removeMermaidBlocks(markdown: string): string {
       continue;
     }
 
-    // Remove diagram-specific heading directly above a Mermaid block.
-    let scan = output.length - 1;
-    while (scan >= 0 && output[scan].trim() === '') scan -= 1;
-    if (scan >= 0 && /^#{3,6}\s+.*diagram/i.test(output[scan])) {
-      output.splice(scan, output.length - scan);
+    // Remove diagram-specific heading and supporting narrative directly above
+    // a Mermaid block (for example blockquotes like "This diagram shows...").
+    while (output.length > 0 && output[output.length - 1].trim() === '') {
+      output.pop();
+    }
+
+    while (output.length > 0) {
+      const tail = output[output.length - 1].trim();
+      if (tail.startsWith('>') || /^\[Back to Top\]/i.test(tail)) {
+        output.pop();
+        continue;
+      }
+      break;
+    }
+
+    while (output.length > 0 && output[output.length - 1].trim() === '') {
+      output.pop();
+    }
+
+    if (output.length > 0 && /^#{3,6}\s+.*(diagram|graph|chart)/i.test(output[output.length - 1].trim())) {
+      output.pop();
       while (output.length > 0 && output[output.length - 1].trim() === '') {
         output.pop();
       }
@@ -2890,6 +2929,77 @@ function removeMermaidBlocks(markdown: string): string {
   }
 
   return output.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+}
+
+/**
+ * After mermaid blocks have been removed, strips any top-level (##) sections
+ * that are now empty — i.e. sections whose body contains only blank lines,
+ * blockquotes, or lines that match diagram/graph/chart reference patterns.
+ * Also removes the corresponding TOC entries.
+ */
+function stripEmptyDiagramSections(markdown: string): string {
+  const sectionLines = markdown.split('\n');
+  const sectionBoundaries: Array<{ start: number; heading: string }> = [];
+  let inFence = false;
+
+  sectionLines.forEach((line, idx) => {
+    if (line.startsWith('```')) { inFence = !inFence; return; }
+    if (!inFence && /^##\s+/.test(line)) {
+      sectionBoundaries.push({ start: idx, heading: line.replace(/^##\s+/, '').trim() });
+    }
+  });
+
+  // Determine which ## sections have no substantive content after stripping
+  const emptyHeadings = new Set<string>();
+  sectionBoundaries.forEach(({ start, heading }, idx) => {
+    const nextStart = idx < sectionBoundaries.length - 1 ? sectionBoundaries[idx + 1].start : sectionLines.length;
+    const bodyLines = sectionLines.slice(start + 1, nextStart);
+    const hasContent = bodyLines.some((ln) => {
+      const trimmed = ln.trim();
+      if (!trimmed) return false;                                                      // blank
+      if (trimmed.startsWith('>')) return false;                                       // blockquote/notice
+      if (/^\[Back to Top\]/i.test(trimmed)) return false;                           // back-to-top link
+      if (/^>\s*(large dependency|diagram|graph|relationship|dependency graph)/i.test(trimmed)) return false; // diagram-related notices
+      if (/^###\s+/.test(trimmed)) return false;                                       // h3 subheadings (empty after mermaid removal)
+      return true;
+    });
+    if (!hasContent) emptyHeadings.add(heading);
+  });
+
+  if (emptyHeadings.size === 0) return markdown;
+
+  // Remove empty sections line-by-line
+  const outputLines: string[] = [];
+  inFence = false;
+  let skipUntilNextH2 = false;
+
+  for (let i = 0; i < sectionLines.length; i++) {
+    const line = sectionLines[i];
+    if (line.startsWith('```')) inFence = !inFence;
+
+    if (!inFence && /^##\s+/.test(line)) {
+      const heading = line.replace(/^##\s+/, '').trim();
+      if (emptyHeadings.has(heading)) {
+        skipUntilNextH2 = true;
+        continue;
+      }
+      skipUntilNextH2 = false;
+    }
+
+    if (skipUntilNextH2) continue;
+    outputLines.push(line);
+  }
+
+  // Remove TOC entries for the removed sections
+  const result = outputLines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+  const resultLines = result.split('\n');
+  const cleaned = resultLines.filter((line) => {
+    const m = line.match(/^- \[(.+?)\]\(#.+?\)\s*$/);
+    if (!m) return true;
+    return !emptyHeadings.has(m[1]);
+  });
+
+  return cleaned.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
 }
 
 function insertCompanionNotice(markdown: string): string {
@@ -2990,7 +3100,7 @@ export function splitMarkdownForDiagramCompanion(markdown: string): { mainMarkdo
   });
 
   const companionMarkdown = appendBackToTopLinksForRawMarkdown(companionLines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd());
-  const mainWithoutDiagrams = removeMermaidBlocks(markdown);
+  const mainWithoutDiagrams = stripEmptyDiagramSections(removeMermaidBlocks(markdown));
   const mainMarkdown = appendBackToTopLinksForRawMarkdown(insertCompanionNotice(mainWithoutDiagrams));
 
   return { mainMarkdown, companionMarkdown };
@@ -3136,6 +3246,16 @@ export function generateConsolidatedMarkdown(
     ...consolidated.processes.flatMap((process) => process.flowConnectors ?? []),
   ]);
 
+  const entityUsage = new Map<string, Set<string>>();
+  items.forEach((sol) => {
+    sol.entities.forEach((entity) => {
+      const key = entity.logicalName;
+      if (!entityUsage.has(key)) entityUsage.set(key, new Set<string>());
+      entityUsage.get(key)!.add(sol.metadata.displayName || sol.metadata.uniqueName);
+    });
+  });
+  const sharedEntities = Array.from(entityUsage.entries()).filter(([, sols]) => sols.size > 1);
+
   const lines: string[] = [];
   const contextSection = generateDocumentContextSection(options.documentContext);
   if (contextSection) {
@@ -3146,6 +3266,16 @@ export function generateConsolidatedMarkdown(
     heading(1, 'Power Platform Solutions: Consolidated Summary'),
     '',
     `> Generated on: ${new Date().toLocaleString()}`,
+    '',
+    heading(2, 'Table of Contents'),
+    '',
+    '- [Included Solutions](#included-solutions)',
+    '- [Ecosystem Inventory](#ecosystem-inventory)',
+    ...(sharedEntities.length > 0
+      ? ['- [Shared Dataverse Tables](#shared-dataverse-tables)']
+      : []),
+    '- [Apps Across Solutions](#apps-across-solutions)',
+    '- [Processes Across Solutions](#processes-across-solutions)',
     '',
     heading(2, 'Included Solutions'),
     '',
@@ -3198,16 +3328,6 @@ export function generateConsolidatedMarkdown(
     `| ${consolidated.pluginAssemblies.length} |`,
   );
   lines.push('');
-
-  const entityUsage = new Map<string, Set<string>>();
-  items.forEach((sol) => {
-    sol.entities.forEach((entity) => {
-      const key = entity.logicalName;
-      if (!entityUsage.has(key)) entityUsage.set(key, new Set<string>());
-      entityUsage.get(key)!.add(sol.metadata.displayName || sol.metadata.uniqueName);
-    });
-  });
-  const sharedEntities = Array.from(entityUsage.entries()).filter(([, sols]) => sols.size > 1);
 
   if (sharedEntities.length > 0) {
     lines.push(heading(2, 'Shared Dataverse Tables'));

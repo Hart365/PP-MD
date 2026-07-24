@@ -2,7 +2,82 @@
 
 ---
 
+## Version 1.1.8
+
+### Fixes
+
+- **Processes & Automation status reporting removed** from summary and detail tables because activation state is not reliably available from Dataverse exports.
+- **Power Automate flow name readability improved further** for mixed labels that contain both spaced text and condensed word runs (for example, `Customerandtriageteamwhenanewprocure` now renders as `Customer and triage team when a new procure`).
+
+### Quality
+
+- Updated regression coverage for Processes & Automation summary columns and mixed condensed flow display-name normalization.
+
+---
+
+## Version 1.1.7
+
+### Fixes
+
+- **Security Roles readability improved** with color-coded permission cells in the privilege matrix using matching colored-circle indicators: ⚫ None, 🔵 User, 🟢 Business Unit, 🟡 Parent-Child BU, 🟠 Organization, 🔴 Unknown.
+- **Power Automate flow display-name corruption fixed** by always preferring the flow JSON display name when present, ensuring user-facing names preserve intended spacing/casing.
+- **Processes & Automation summary redesigned** by splitting the single summary table into separate summary tables per automation type, with columns tailored to each type (for example, flow connector/reference/environment columns for Power Automate flows).
+
+### Improvements
+
+- **Markdown filename format standardised** to use `<Solution Name>.md` and `<Solution Name> - Diagrams.md` for diagram companions.
+- **Markdown Viewer now exposes the active filename as a hover tooltip** on the document title, making it easier to identify files when names are truncated in navigation.
+
+### Quality
+
+- Added/updated regression tests covering:
+	- split automation summary tables,
+	- security-role colored badge output,
+	- Power Automate display-name preference from JSON metadata.
+
+---
+
+## Version 1.1.6
+
+### Fixes
+
+- **HTML tables replaced with Markdown tables throughout all generated documents.** The project header (Client, Contract, SoW, Project, Sprint, Release Date) and all Security Role privilege/field security tables now use pure Markdown table syntax. No HTML `<table>`, `<tr>`, `<td>`, or `<span>` elements appear in any table cell or table structure.
+- **Security Role privilege depth labels** changed from HTML-styled badges to plain text (None / User / Business Unit / Parent-Child BU / Org).
+- **Column Level Security "Allowed/Not Allowed" cells** changed from HTML badges to ✅ Allowed / ❌ Not Allowed.
+- **Companion diagrams mode** now fully strips empty diagram-only section headings (e.g. _Entity Relationship Diagram_, _Solution Component Relationship Graph_) and their TOC entries from the main document when those sections have been moved to the companion file. Blockquotes and h3 subheadings related to diagrams are also removed.
+- **Processes & Automation — Referenced Tables formatting**: Each referenced table now appears on a separate line in both the summary and details tables, using HTML line breaks for improved readability.
+- **Processes & Automation — category fix**: Power Automate flows with a `CustomAction` (category 5) label from the solution XML are now correctly reclassified as _Power Automate Flow_ when a matching flow JSON file is found in the `Workflows/` folder. GUID-based flow names wrapped in curly braces (e.g. `{guid}.json`) are now normalised before matching, eliminating the most common reason flows were not matched.
+- **Processes & Automation — primary trigger table**: The trigger entity (Dataverse table the flow fires on) is now extracted from Power Automate flow trigger input parameters and reported as the Primary Table.
+- **Processes & Automation — related entities updated**: When a flow JSON is matched, the trigger entity is included alongside step-referenced tables in the Referenced Tables column.
+- **Web Resources — missing entries resolved**: The parser now scans the `WebResources/` folder inside the solution ZIP in addition to the `customizations.xml` `<WebResources>` block. Icons (`.ico`), SVGs (`.svg`), images (`.png`, `.jpg`, `.gif`), JavaScript (`.js`), TypeScript (`.ts`), HTML, CSS, XML, XSL, and `.resx` files stored as individual files are all captured and reported.
+
+---
+
 ## Versions 1.1.3 to 1.1.5
+
+### Fixes
+
+- Fixed a regression where the Security Roles section could disappear when active security-role filters removed all matching table privileges.
+- Security roles are now always listed when roles exist in the solution, even if filtered privilege rows are empty.
+- Added an explicit placeholder row in empty filtered matrices: _No table privileges matched the active filters for this role._
+- Fixed security role table filtering logic so **Only Include Tables in Current Solution** matches all tables present in the solution, not only custom tables.
+- Preserved **Only Include Custom Tables in Security Roles** as an additional filter, so when both toggles are enabled the result is the expected intersection.
+- Added support for matching role privilege table names against both Dataverse logical names and entity-set names to reduce false exclusions.
+- Hardened custom-table detection for security role filters so custom tables are retained even when Dataverse exports do not reliably mark `IsCustomEntity`.
+- Added fallback custom-table heuristics using object type code and Dataverse naming patterns for logical names and entity-set names.
+
+### New Features
+
+- Added a new document option: **Generate Companion Diagrams Document**.
+- When enabled, Mermaid diagrams are moved into a companion markdown file while the main document keeps the same structure and includes a notice that diagrams are available in the companion file.
+- Companion and primary outputs both preserve Table of Contents and Back-to-Top navigation links.
+
+### Quality
+
+- Added a regression test to ensure filtered-empty role matrices do not remove the Security Roles section.
+- Updated regression tests for security role filtering semantics and added coverage for logical-name/entity-set-name matching.
+- Added regression tests for fallback custom-table filtering when `IsCustomEntity` metadata is unavailable.
+- Added tests validating diagram extraction into a companion markdown output.
 
 ### Fixes
 

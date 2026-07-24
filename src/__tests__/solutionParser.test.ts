@@ -75,6 +75,145 @@ async function buildTestZip(): Promise<Blob> {
 }
 
 describe('parseSolutionZip regressions', () => {
+  it('prefers Power Automate JSON display names when matching existing workflow records', async () => {
+    const zip = new JSZip();
+    zip.file(
+      'solution.xml',
+      `<?xml version="1.0" encoding="utf-8"?>
+<ImportExportXml>
+  <SolutionManifest>
+    <UniqueName>contoso_flow_names</UniqueName>
+    <Version>1.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher>
+      <UniqueName>contoso</UniqueName>
+      <FriendlyName>Contoso</FriendlyName>
+    </Publisher>
+  </SolutionManifest>
+</ImportExportXml>`,
+    );
+
+    zip.file(
+      'customizations.xml',
+      `<?xml version="1.0" encoding="utf-8"?>
+<ImportExportXml>
+  <Workflows>
+    <Workflow>
+      <Name>flow_internal_name</Name>
+      <Category>5</Category>
+      <LocalizedNames>
+        <LocalizedName description="flowinternalname" languagecode="1033" />
+      </LocalizedNames>
+    </Workflow>
+  </Workflows>
+</ImportExportXml>`,
+    );
+
+    zip.file(
+      'Workflows/flow_internal_name.json',
+      JSON.stringify({
+        properties: {
+          displayName: 'Flow Internal Name',
+          definition: {
+            triggers: {},
+            actions: {},
+          },
+        },
+      }),
+    );
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const parsed = await parseSolutionZip(blob);
+
+    const flow = parsed.processes.find((item) => item.uniqueName === 'flow_internal_name');
+    expect(flow).toBeTruthy();
+    expect(flow?.displayName).toBe('Flow Internal Name');
+  });
+
+  it('normalizes condensed workflow display names using unique-name spacing hints', async () => {
+    const zip = new JSZip();
+    zip.file(
+      'solution.xml',
+      `<?xml version="1.0" encoding="utf-8"?>
+<ImportExportXml>
+  <SolutionManifest>
+    <UniqueName>contoso_flow_spacing</UniqueName>
+    <Version>1.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher>
+      <UniqueName>contoso</UniqueName>
+      <FriendlyName>Contoso</FriendlyName>
+    </Publisher>
+  </SolutionManifest>
+</ImportExportXml>`,
+    );
+
+    zip.file(
+      'customizations.xml',
+      `<?xml version="1.0" encoding="utf-8"?>
+<ImportExportXml>
+  <Workflows>
+    <Workflow>
+      <Name>flow_internal_name</Name>
+      <Category>5</Category>
+      <LocalizedNames>
+        <LocalizedName description="flowinternalname" languagecode="1033" />
+      </LocalizedNames>
+    </Workflow>
+  </Workflows>
+</ImportExportXml>`,
+    );
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const parsed = await parseSolutionZip(blob);
+
+    const flow = parsed.processes.find((item) => item.uniqueName === 'flow_internal_name');
+    expect(flow).toBeTruthy();
+    expect(flow?.displayName).toBe('Flow Internal Name');
+  });
+
+  it('normalizes mixed flow display names that contain condensed word runs', async () => {
+    const zip = new JSZip();
+    zip.file(
+      'solution.xml',
+      `<?xml version="1.0" encoding="utf-8"?>
+<ImportExportXml>
+  <SolutionManifest>
+    <UniqueName>contoso_flow_mixed_spacing</UniqueName>
+    <Version>1.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher>
+      <UniqueName>contoso</UniqueName>
+      <FriendlyName>Contoso</FriendlyName>
+    </Publisher>
+  </SolutionManifest>
+</ImportExportXml>`,
+    );
+
+    zip.file(
+      'customizations.xml',
+      `<?xml version="1.0" encoding="utf-8"?>
+<ImportExportXml>
+  <Workflows>
+    <Workflow>
+      <Name>ADAPTV2 Notify Customerandtriageteamwhenanewprocure</Name>
+      <Category>5</Category>
+      <LocalizedNames>
+        <LocalizedName description="ADAPTV2 Notify Customerandtriageteamwhenanewprocure" languagecode="1033" />
+      </LocalizedNames>
+    </Workflow>
+  </Workflows>
+</ImportExportXml>`,
+    );
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const parsed = await parseSolutionZip(blob);
+
+    const flow = parsed.processes.find((item) => item.uniqueName === 'ADAPTV2 Notify Customerandtriageteamwhenanewprocure');
+    expect(flow).toBeTruthy();
+    expect(flow?.displayName).toBe('ADAPTV2 Notify Customer and triage team when a new procure');
+  });
+
   it('maps component types, captures canvas screens, and resolves environment variable values', async () => {
     const blob = await buildTestZip();
     const parsed = await parseSolutionZip(blob);
