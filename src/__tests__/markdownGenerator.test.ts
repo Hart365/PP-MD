@@ -647,6 +647,56 @@ describe('generateMarkdown', () => {
     expect(markdown).toContain('entity_contact["Contact"]');
     expect(markdown).toContain('process_contoso_sync_contacts --> entity_account');
     expect(markdown).toContain('process_contoso_sync_contacts --> entity_contact');
+    expect(markdown).toContain('linkStyle 0 stroke:#2563eb,stroke-width:3px;stroke-linecap:round');
+    expect(markdown).toContain('linkStyle 1 stroke:#2563eb,stroke-width:3px;stroke-linecap:round');
+  });
+
+  it('uses configurable Mermaid palette colors when provided', () => {
+    const markdown = generateMarkdown(
+      {
+        ...sampleSolution,
+        processes: [
+          {
+            name: 'Palette Flow',
+            uniqueName: 'palette_flow',
+            category: ProcessCategory.PowerAutomateFlow,
+            primaryEntity: 'account',
+            relatedEntities: ['contact'],
+            steps: [
+              {
+                id: 'trigger',
+                name: 'Start',
+                stepType: 'Trigger',
+                children: [
+                  {
+                    id: 'update',
+                    name: 'Update',
+                    stepType: 'Dataverse.Update',
+                    referencedEntities: ['account'],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        documentationSettings: {
+          ...DEFAULT_DOCUMENTATION_SETTINGS,
+          mermaidPalette: {
+            sourceOne: '#123456',
+            sourceTwo: '#654321',
+            sourceThree: '#abcdef',
+            sourceFour: '#fedcba',
+          },
+        },
+      },
+    );
+
+    expect(markdown).toContain('%%{ init: { \'theme\': \'base\'' );
+    expect(markdown).toContain('stroke:#123456,stroke-width:3px;stroke-linecap:round');
+    expect(markdown).toContain('stroke:#654321,stroke-width:3px;stroke-linecap:round');
+    expect(markdown).toContain('stroke:#abcdef,stroke-width:3px;stroke-linecap:round');
   });
 
   it('renders process flow diagrams when process steps are available', () => {
@@ -693,6 +743,9 @@ describe('generateMarkdown', () => {
     expect(markdown).toContain('process_flow_contoso_account_sync -->|starts|');
     expect(markdown).toContain('-->|then|');
     expect(markdown).toContain('-->|touches|');
+    expect(markdown).toContain('linkStyle 0 stroke:#2563eb,stroke-width:3px;stroke-linecap:round');
+    expect(markdown).toContain('linkStyle 1 stroke:#16a34a,stroke-width:3px;stroke-linecap:round');
+    expect(markdown).toContain('linkStyle 2 stroke:#7c3aed,stroke-width:3px;stroke-linecap:round');
   });
 
   it('splits large component relationship graphs and large process flows for readability', () => {

@@ -2,6 +2,18 @@
 
 ---
 
+## Version 1.1.22
+
+This release adds configurable Mermaid styling for the generated diagrams, including a stronger, more diagrammatic palette and source-based line colors that make it easier to follow connections from individual items.
+
+### Highlights
+
+- Mermaid diagrams now support configurable colors from a collapsed section on the start page, with a stronger contrast palette by default.
+- Relationship lines in all Mermaid diagrams use distinct source-based colors so it is easier to identify connections that radiate from a single node.
+- The same styling approach is applied consistently across component graphs, ERDs, and process-flow diagrams.
+
+---
+
 ## Version 1.1.21
 
 This release consolidates the main improvements delivered since version 1.1.6, covering export reliability, reporting quality, and the desktop experience.

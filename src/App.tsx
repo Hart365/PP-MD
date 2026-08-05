@@ -32,12 +32,14 @@ import { UpdateChecker }     from './components/ui/UpdateChecker';
 import { parseSolutionZip }  from './parser/solutionParser';
 import {
   DEFAULT_DOCUMENTATION_SETTINGS,
+  DEFAULT_MERMAID_PALETTE,
   generateMarkdown,
   generateConsolidatedMarkdown,
   consolidateSolutions,
   splitMarkdownForDiagramCompanion,
   type DocumentationSettings,
   type DocumentContext,
+  type MermaidPaletteSettings,
 } from './generator/markdownGenerator';
 import type { ParsedSolution } from './types/solution';
 import appIcon from './assets/app-icon.svg';
@@ -95,6 +97,7 @@ const APP_DEFAULT_DOCUMENTATION_SETTINGS: DocumentationSettings = {
     ...DEFAULT_DOCUMENTATION_SETTINGS.metadata,
     includeMetadataDiagnosticInfo: true,
   },
+  mermaidPalette: { ...DEFAULT_MERMAID_PALETTE },
 };
 
 function normalizeDocumentationSettings(settings: DocumentationSettings | undefined): DocumentationSettings {
@@ -114,6 +117,8 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
     .filter((entry): entry is string => typeof entry === 'string')
     .map((entry) => entry.trim().toLowerCase())
     .filter((entry, index, all) => entry.length > 0 && all.indexOf(entry) === index);
+
+  const palette = settings?.mermaidPalette;
 
   return {
     detailLevel: settings?.detailLevel === 'summary' ? 'summary' : 'detailed',
@@ -153,6 +158,12 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
     },
     separateDiagramsDocument:
       settings?.separateDiagramsDocument ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.separateDiagramsDocument,
+    mermaidPalette: {
+      sourceOne: palette?.sourceOne ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.mermaidPalette.sourceOne,
+      sourceTwo: palette?.sourceTwo ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.mermaidPalette.sourceTwo,
+      sourceThree: palette?.sourceThree ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.mermaidPalette.sourceThree,
+      sourceFour: palette?.sourceFour ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.mermaidPalette.sourceFour,
+    },
   };
 }
 
@@ -493,6 +504,8 @@ export default function App() {
   const [manualAttributeNamesInput, setManualAttributeNamesInput] = useState<string>('');
   /** True when switching to a heavy markdown document so we can show feedback */
   const [isViewerLoading, setIsViewerLoading] = useState<boolean>(false);
+  /** Whether the Mermaid palette section is expanded on the welcome screen */
+  const [isMermaidPaletteExpanded, setIsMermaidPaletteExpanded] = useState<boolean>(false);
   const openMarkdownInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -850,6 +863,17 @@ export default function App() {
     const nextSettings: DocumentationSettings = {
       ...documentationSettings,
       separateDiagramsDocument: !documentationSettings.separateDiagramsDocument,
+    };
+    applyDocumentationSettings(nextSettings);
+  }, [applyDocumentationSettings, documentationSettings]);
+
+  const handleMermaidPaletteColorChange = useCallback((key: keyof MermaidPaletteSettings, value: string) => {
+    const nextSettings: DocumentationSettings = {
+      ...documentationSettings,
+      mermaidPalette: {
+        ...documentationSettings.mermaidPalette,
+        [key]: value,
+      },
     };
     applyDocumentationSettings(nextSettings);
   }, [applyDocumentationSettings, documentationSettings]);
@@ -1367,6 +1391,42 @@ export default function App() {
                     />
                     <span>Generate Companion Diagrams Document</span>
                   </label>
+                </div>
+
+                <div className={styles.palettePanel}>
+                  <button
+                    type="button"
+                    className={styles.paletteToggle}
+                    onClick={() => setIsMermaidPaletteExpanded((prev) => !prev)}
+                    aria-expanded={isMermaidPaletteExpanded}
+                  >
+                    <span>Mermaid Diagram Colors</span>
+                    <span>{isMermaidPaletteExpanded ? '▾' : '▸'}</span>
+                  </button>
+
+                  {isMermaidPaletteExpanded && (
+                    <div className={styles.paletteGrid}>
+                      {([
+                        ['sourceOne', 'Primary / Source 1'],
+                        ['sourceTwo', 'Secondary / Source 2'],
+                        ['sourceThree', 'Tertiary / Source 3'],
+                        ['sourceFour', 'Accent / Source 4'],
+                      ] as Array<[keyof MermaidPaletteSettings, string]>).map(([key, label]) => (
+                        <label key={key} className={styles.paletteField}>
+                          <span>{label}</span>
+                          <div className={styles.paletteInputRow}>
+                            <input
+                              type="color"
+                              value={documentationSettings.mermaidPalette[key]}
+                              onChange={(event) => handleMermaidPaletteColorChange(key, event.target.value)}
+                              aria-label={`${label} color`}
+                            />
+                            <span>{documentationSettings.mermaidPalette[key]}</span>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
               </section>

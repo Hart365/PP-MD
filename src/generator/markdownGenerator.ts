@@ -91,13 +91,28 @@ export interface DocumentationSecurityRoleFilters {
   onlyCustomTables: boolean;
 }
 
+export interface MermaidPaletteSettings {
+  sourceOne: string;
+  sourceTwo: string;
+  sourceThree: string;
+  sourceFour: string;
+}
+
 export interface DocumentationSettings {
   detailLevel: DocumentationDetailLevel;
   scope: DocumentationScopeSettings;
   metadata: DocumentationMetadataSettings;
   securityRoleFilters: DocumentationSecurityRoleFilters;
   separateDiagramsDocument: boolean;
+  mermaidPalette: MermaidPaletteSettings;
 }
+
+export const DEFAULT_MERMAID_PALETTE: MermaidPaletteSettings = {
+  sourceOne: '#2563eb',
+  sourceTwo: '#16a34a',
+  sourceThree: '#7c3aed',
+  sourceFour: '#dc2626',
+};
 
 export const DEFAULT_DOCUMENTATION_SETTINGS: DocumentationSettings = {
   detailLevel: 'detailed',
@@ -125,6 +140,7 @@ export const DEFAULT_DOCUMENTATION_SETTINGS: DocumentationSettings = {
     onlyCustomTables: false,
   },
   separateDiagramsDocument: false,
+  mermaidPalette: DEFAULT_MERMAID_PALETTE,
 };
 
 export interface DocumentContext {
@@ -201,9 +217,55 @@ function sortByLabel<T>(items: T[], labelFn: (item: T) => string): T[] {
  * @param mermaidContent - Raw Mermaid DSL text (without the fence)
  * @param title          - Optional accessible title line for screen readers
  */
-function mermaidBlock(mermaidContent: string, title?: string): string {
-  const titleLine = title ? `%%{ init: { 'theme': 'neutral' } }%%\n%% ${title} %%\n` : '';
-  return `\`\`\`mermaid\n${titleLine}${mermaidContent}\n\`\`\``;
+function normalizeMermaidPalette(palette: MermaidPaletteSettings | undefined): MermaidPaletteSettings {
+  const isValidHex = (value: unknown): value is string => typeof value === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(value.trim());
+  const normalizeHex = (value: unknown, fallback: string): string => (isValidHex(value) ? value.trim().toLowerCase() : fallback);
+
+  return {
+    sourceOne: normalizeHex(palette?.sourceOne, DEFAULT_MERMAID_PALETTE.sourceOne),
+    sourceTwo: normalizeHex(palette?.sourceTwo, DEFAULT_MERMAID_PALETTE.sourceTwo),
+    sourceThree: normalizeHex(palette?.sourceThree, DEFAULT_MERMAID_PALETTE.sourceThree),
+    sourceFour: normalizeHex(palette?.sourceFour, DEFAULT_MERMAID_PALETTE.sourceFour),
+  };
+}
+
+function mermaidThemeInitDirective(palette?: MermaidPaletteSettings): string {
+  if (!palette) {
+    return `%%{ init: { 'theme': 'neutral' } }%%`;
+  }
+
+  const isDefaultPalette = [
+    palette.sourceOne === DEFAULT_MERMAID_PALETTE.sourceOne,
+    palette.sourceTwo === DEFAULT_MERMAID_PALETTE.sourceTwo,
+    palette.sourceThree === DEFAULT_MERMAID_PALETTE.sourceThree,
+    palette.sourceFour === DEFAULT_MERMAID_PALETTE.sourceFour,
+  ].every(Boolean);
+
+  if (isDefaultPalette) {
+    return `%%{ init: { 'theme': 'neutral' } }%%`;
+  }
+
+  const themeVariables = [
+    ['primaryColor', palette.sourceOne],
+    ['secondaryColor', '#f8fafc'],
+    ['tertiaryColor', '#ffffff'],
+    ['mainBkg', '#f8fafc'],
+    ['lineColor', '#334155'],
+    ['textColor', '#0f172a'],
+    ['clusterBkg', '#ffffff'],
+    ['clusterBorder', '#94a3b8'],
+    ['primaryBorderColor', palette.sourceOne],
+  ]
+    .map(([key, value]) => `'${key}': '${value}'`)
+    .join(', ');
+
+  return `%%{ init: { 'theme': 'base', 'themeVariables': { ${themeVariables} } } }%%`;
+}
+
+function mermaidBlock(mermaidContent: string, title?: string, palette?: MermaidPaletteSettings): string {
+  const initLine = `${mermaidThemeInitDirective(palette)}\n`;
+  const titleLine = title ? `%% ${title} %%\n` : '';
+  return `\`\`\`mermaid\n${initLine}${titleLine}${mermaidContent}\n\`\`\``;
 }
 
 /**
@@ -400,6 +462,7 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
       onlyCustomTables: settings?.securityRoleFilters?.onlyCustomTables ?? DEFAULT_DOCUMENTATION_SETTINGS.securityRoleFilters.onlyCustomTables,
     },
     separateDiagramsDocument: settings?.separateDiagramsDocument ?? DEFAULT_DOCUMENTATION_SETTINGS.separateDiagramsDocument,
+    mermaidPalette: normalizeMermaidPalette(settings?.mermaidPalette),
   };
 }
 
@@ -923,6 +986,35 @@ function graphLabel(displayName: string | undefined | null, schemaName: string |
   return display || schema || 'Unknown';
 }
 
+function mermaidLinkStyle(relation: string | undefined, palette: MermaidPaletteSettings): string {
+  const normalized = (relation || '').trim().toLowerCase();
+  switch (normalized) {
+    case 'starts':
+    case 'binds':
+    case 'uses':
+    case 'surfaces':
+    case 'executes':
+      return `stroke:${palette.sourceOne},stroke-width:3px;stroke-linecap:round`;
+    case 'then':
+    case 'connects':
+    case 'reads':
+    case 'queries':
+      return `stroke:${palette.sourceTwo},stroke-width:3px;stroke-linecap:round`;
+    case 'touches':
+    case 'reports':
+    case 'visualizes':
+      return `stroke:${palette.sourceThree},stroke-width:3px;stroke-linecap:round`;
+    default:
+      return `stroke:${palette.sourceFour},stroke-width:3px;stroke-linecap:round`;
+  }
+}
+
+function appendMermaidLinkStyles(diagramLines: string[], edges: Array<{ relation?: string }>, palette: MermaidPaletteSettings): void {
+  edges.forEach((edge, index) => {
+    diagramLines.push(`linkStyle ${index} ${mermaidLinkStyle(edge.relation, palette)}`);
+  });
+}
+
 function entityGraphLabel(logicalName: string, entityMap: Map<string, string>): string {
   const display = entityMap.get(logicalName.toLowerCase());
   return stripTrailingGuid(display || logicalName).trim() || logicalName;
@@ -1126,7 +1218,11 @@ function generateComponentInventorySection(inventory: SolutionComponentInventory
   ]);
 }
 
-function generateComponentRelationshipGraphSection(solution: ParsedSolution, entityMap: Map<string, string>): string {
+function generateComponentRelationshipGraphSection(
+  solution: ParsedSolution,
+  entityMap: Map<string, string>,
+  palette: MermaidPaletteSettings,
+): string {
   const graph = collectComponentGraphData(solution, entityMap);
   if (graph.edges.length === 0) return '';
 
@@ -1150,12 +1246,13 @@ function generateComponentRelationshipGraphSection(solution: ParsedSolution, ent
       diagramLines.push(`  ${edge.from} -->|${mermaidLabel(edge.relation)}| ${edge.to}`);
     });
 
+    appendMermaidLinkStyles(diagramLines, edges, palette);
     return diagramLines.join('\n');
   };
 
   const MAX_EDGES_PER_DIAGRAM = 80;
   if (graph.edges.length <= MAX_EDGES_PER_DIAGRAM) {
-    lines.push(mermaidBlock(buildDiagram(graph.edges), 'Solution Component Relationship Graph'));
+    lines.push(mermaidBlock(buildDiagram(graph.edges), 'Solution Component Relationship Graph', palette));
     lines.push('');
     return lines.join('\n');
   }
@@ -1171,7 +1268,7 @@ function generateComponentRelationshipGraphSection(solution: ParsedSolution, ent
   chunks.forEach((chunk, index) => {
     lines.push(heading(3, `Component Relationship Map (Part ${index + 1})`));
     lines.push('');
-    lines.push(mermaidBlock(buildDiagram(chunk), `Component Relationship Graph Part ${index + 1}`));
+    lines.push(mermaidBlock(buildDiagram(chunk), `Component Relationship Graph Part ${index + 1}`, palette));
     lines.push('');
   });
 
@@ -1341,7 +1438,7 @@ function generateERD(
 
   const sortedEntityNames = Array.from(includedNames).sort();
   if (relationships.length === 0) {
-    lines.push(mermaidBlock(buildDiagram(sortedEntityNames, []), 'Entity Relationship Diagram'));
+    lines.push(mermaidBlock(buildDiagram(sortedEntityNames, []), 'Entity Relationship Diagram', settings.mermaidPalette));
     lines.push('');
     return lines.join('\n');
   }
@@ -1368,7 +1465,7 @@ function generateERD(
   const sortedRelationships = [...relationships].sort((a, b) => `${a.from}:${a.to}`.localeCompare(`${b.from}:${b.to}`));
 
   if (sortedRelationships.length <= MAX_RELATIONSHIPS_PER_DIAGRAM) {
-    lines.push(mermaidBlock(buildDiagram(sortedEntityNames, sortedRelationships), 'Entity Relationship Diagram'));
+    lines.push(mermaidBlock(buildDiagram(sortedEntityNames, sortedRelationships), 'Entity Relationship Diagram', settings.mermaidPalette));
     lines.push('');
     return lines.join('\n');
   }
@@ -1385,7 +1482,7 @@ function generateERD(
     const chunkEntities = Array.from(new Set(chunk.flatMap((rel) => [rel.from, rel.to]))).sort();
     lines.push(heading(3, `ERD Relationship Map (Part ${index + 1})`));
     lines.push('');
-    lines.push(mermaidBlock(buildDiagram(chunkEntities, chunk), `Entity Relationship Diagram Part ${index + 1}`));
+    lines.push(mermaidBlock(buildDiagram(chunkEntities, chunk), `Entity Relationship Diagram Part ${index + 1}`, settings.mermaidPalette));
     lines.push('');
   });
 
@@ -1410,7 +1507,7 @@ function generateERD(
     const hubLabel = entityMap.get(hubName)?.displayName || hubName;
     lines.push(heading(3, `Focused ERD: ${hubLabel} (${relCount} relationships)`));
     lines.push('');
-    lines.push(mermaidBlock(buildDiagram(focusedEntities.sort(), focusedEdges), `Focused ERD for ${hubLabel}`));
+    lines.push(mermaidBlock(buildDiagram(focusedEntities.sort(), focusedEdges), `Focused ERD for ${hubLabel}`, settings.mermaidPalette));
     lines.push('');
   });
 
@@ -1814,6 +1911,7 @@ function generateProcessesSection(
   entityMap: Map<string, string>,
   connectionRefs: ConnectionReferenceDefinition[],
   envVars: EnvironmentVariableDefinition[],
+  palette: MermaidPaletteSettings,
 ): string {
   if (processes.length === 0) return '';
 
@@ -1945,6 +2043,7 @@ function generateProcessesSection(
         `  ${graphNodeId}["${mermaidLabel(graphLabel(proc.displayName || proc.name, proc.uniqueName))}"]`,
       ];
       const emittedNodes = new Set<string>([graphNodeId]);
+      const flowEdges: Array<{ relation?: string }> = [];
 
       const addTarget = (kind: 'entity' | 'reference' | 'variable', targetName: string, label: string) => {
         const nodeId = flowchartNodeId(`${kind}_${targetName}`);
@@ -1953,6 +2052,7 @@ function generateProcessesSection(
           emittedNodes.add(nodeId);
         }
         graphLines.push(`  ${graphNodeId} --> ${nodeId}`);
+        flowEdges.push({ relation: 'uses' });
       };
 
       uniqueStrings([proc.primaryEntity, ...(proc.relatedEntities ?? [])].filter(Boolean) as string[])
@@ -1969,11 +2069,13 @@ function generateProcessesSection(
         addTarget('variable', env, `Environment Variable: ${env}`);
       });
 
+      appendMermaidLinkStyles(graphLines, flowEdges, palette);
+
       lines.push(heading(4, 'Relationship Diagram'));
       lines.push('');
       lines.push('> This diagram shows the process and the solution components it depends on.');
       lines.push('');
-      lines.push(mermaidBlock(graphLines.join('\n'), `Process dependencies for ${processTitle(proc)}`));
+      lines.push(mermaidBlock(graphLines.join('\n'), `Process dependencies for ${processTitle(proc)}`, palette));
       lines.push('');
     }
 
@@ -2058,6 +2160,7 @@ function generateProcessesSection(
           }
         });
 
+        appendMermaidLinkStyles(diagramLines, includedEdges, palette);
         return diagramLines.join('\n');
       };
 
@@ -2066,7 +2169,7 @@ function generateProcessesSection(
 
       const MAX_STEPS_PER_DIAGRAM = 45;
       if (stepNodeIds.length <= MAX_STEPS_PER_DIAGRAM) {
-        lines.push(mermaidBlock(buildFlowDiagram(new Set(stepNodeIds)), `Process flow for ${processTitle(proc)}`));
+        lines.push(mermaidBlock(buildFlowDiagram(new Set(stepNodeIds)), `Process flow for ${processTitle(proc)}`, palette));
         lines.push('');
       } else {
         lines.push(`> Large process detected (${stepNodeIds.length} steps). Flow diagram is split for readability.`);
@@ -2076,7 +2179,7 @@ function generateProcessesSection(
           const chunk = new Set(stepNodeIds.slice(i, i + MAX_STEPS_PER_DIAGRAM));
           lines.push(heading(5, `Flow Segment ${part}`));
           lines.push('');
-          lines.push(mermaidBlock(buildFlowDiagram(chunk), `Process flow segment ${part} for ${processTitle(proc)}`));
+          lines.push(mermaidBlock(buildFlowDiagram(chunk), `Process flow segment ${part} for ${processTitle(proc)}`, palette));
           lines.push('');
         }
       }
@@ -3122,7 +3225,7 @@ function buildSolutionOutputSections(
     createOutputSection('component-inventory', generateComponentInventorySection(solution.metadata.componentInventory)),
     createOutputSection(
       'component-relationship-graph',
-      includeDetailedSections ? generateComponentRelationshipGraphSection(solution, entityMap) : '',
+      includeDetailedSections ? generateComponentRelationshipGraphSection(solution, entityMap, documentationSettings.mermaidPalette) : '',
     ),
     createOutputSection(
       'entity-relationship-diagram',
@@ -3146,7 +3249,13 @@ function buildSolutionOutputSections(
     createOutputSection(
       'processes-automation',
       documentationSettings.scope.flows
-        ? generateProcessesSection(solution.processes, entityMap, solution.connectionReferences, solution.environmentVariables)
+        ? generateProcessesSection(
+          solution.processes,
+          entityMap,
+          solution.connectionReferences,
+          solution.environmentVariables,
+          documentationSettings.mermaidPalette,
+        )
         : '',
     ),
     createOutputSection('power-apps', documentationSettings.scope.apps ? generateAppsSection(solution.apps, entityMap) : ''),

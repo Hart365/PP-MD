@@ -341,6 +341,56 @@
   accent-color: var(--color-accent);
 }
 
+.palettePanel {
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-md);
+  background: var(--color-surface-alt);
+  overflow: hidden;
+}
+
+.paletteToggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.7rem 0.8rem;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.paletteGrid {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0 0.8rem 0.8rem;
+}
+
+.paletteField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.84rem;
+  color: var(--color-text-secondary);
+}
+
+.paletteInputRow {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.paletteInputRow input[type='color'] {
+  width: 2.4rem;
+  height: 2.1rem;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  cursor: pointer;
+}
+
 .logoGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
