@@ -1,5 +1,7 @@
+const fs = require('node:fs/promises');
 const https = require('node:https');
 const path = require('node:path');
+const { randomUUID } = require('node:crypto');
 const { app, BrowserWindow, dialog, shell, ipcMain } = require('electron');
 
 // Ensure Windows uses our App User Model ID so the taskbar shows the app icon
@@ -150,6 +152,75 @@ function setupIpcHandlers() {
 
   ipcMain.handle('check-for-updates', async () => {
     return fetchLatestReleaseFromGitHub();
+  });
+
+  ipcMain.handle('export-markdown-pdf', async (event, payload) => {
+    const title = typeof payload?.title === 'string' && payload.title.trim()
+      ? payload.title.trim()
+      : 'PP-MD Documentation';
+    const html = typeof payload?.html === 'string' ? payload.html : '';
+    const requestedName = typeof payload?.defaultFileName === 'string' && payload.defaultFileName.trim()
+      ? payload.defaultFileName.trim()
+      : 'PP-MD Document.pdf';
+
+    if (!html) {
+      return { cancelled: false, error: 'Missing HTML content for PDF export.' };
+    }
+
+    const safeName = requestedName.toLowerCase().endsWith('.pdf') ? requestedName : `${requestedName}.pdf`;
+    const ownerWindow = BrowserWindow.fromWebContents(event.sender) || undefined;
+    const saveResult = await dialog.showSaveDialog(ownerWindow, {
+      title: 'Export PDF',
+      defaultPath: app.getPath('documents')
+        ? path.join(app.getPath('documents'), safeName)
+        : safeName,
+      buttonLabel: 'Export PDF',
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      properties: ['showOverwriteConfirmation', 'createDirectory'],
+    });
+
+    if (saveResult.canceled || !saveResult.filePath) {
+      return { cancelled: true };
+    }
+
+    const printWindow = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    let tempHtmlPath;
+
+    try {
+      tempHtmlPath = path.join(app.getPath('temp'), `pp-md-pdf-${Date.now()}-${randomUUID()}.html`);
+      await fs.writeFile(tempHtmlPath, html, 'utf8');
+      await printWindow.loadFile(tempHtmlPath);
+      const pdfData = await printWindow.webContents.printToPDF({
+        printBackground: true,
+        preferCSSPageSize: true,
+        generateDocumentOutline: true,
+        generateTaggedPDF: true,
+      });
+      await fs.writeFile(saveResult.filePath, pdfData);
+
+      return { cancelled: false, filePath: saveResult.filePath, title };
+    } catch (error) {
+      return {
+        cancelled: false,
+        error: `PDF export failed: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    } finally {
+      if (tempHtmlPath) {
+        await fs.unlink(tempHtmlPath).catch(() => {
+          // Best-effort cleanup only.
+        });
+      }
+      if (!printWindow.isDestroyed()) {
+        printWindow.close();
+      }
+    }
   });
 }
 

@@ -117,9 +117,19 @@ These fields are included in the generated document header. They can be left bla
 
 After uploading, the documentation is generated automatically. Use the **sidebar** on the left to switch between loaded solutions. The **Markdown Viewer** renders the output with full Mermaid diagram support, syntax highlighting, and GFM tables.
 
+You can also load previously generated documents directly using **Open .md** in the top header toolbar.
+
+When a document contains Mermaid content, the viewer toolbar shows live diagram render progress as **Diagrams X/Y rendered**.
+
 ### 4. Export
 
-Click **Export .md** (or the copy button) to save the current document as a `.md` file. The file name is derived from the solution's unique name. The exported file can be opened in any Markdown editor (VS Code, Obsidian, Azure DevOps Wiki, GitHub, etc.).
+Use the Markdown viewer toolbar to export the active document in either format:
+
+- **Export .md**: saves the raw Markdown source.
+- **Export .pdf**: saves a rendered PDF (desktop app) with Mermaid diagrams included. Large diagrams and wide tables are optimized for print flow by switching to landscape pages and splitting oversized content where required.
+- **Export .xlsx**: extracts Markdown tables into an Excel workbook with a branded **Contents** worksheet, document header details, and per-tab links. Dataverse table/entity-related tables are grouped into shared entity worksheets.
+
+PDF export is generated through the Electron desktop shell using Chromium's tagged PDF output mode (`generateTaggedPDF`) so the exported document includes accessibility tagging and heading outline metadata for assistive technology.
 
 ### 5. Consolidated Report
 

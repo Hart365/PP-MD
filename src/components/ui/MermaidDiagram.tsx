@@ -32,12 +32,14 @@ const btnStyle = {
 export interface MermaidDiagramProps {
   chart: string;
   caption?: string;
+  mermaidGroupKey?: string;
+  onRenderStateChange?: (groupKey: string, diagramId: string, state: 'rendering' | 'done') => void;
 }
 
 /**
  * Renders a Mermaid diagram with zoom/pan/fullscreen controls.
  */
-export function MermaidDiagram({ chart, caption = 'Diagram' }: MermaidDiagramProps) {
+export function MermaidDiagram({ chart, caption = 'Diagram', mermaidGroupKey, onRenderStateChange }: MermaidDiagramProps) {
   const figRef = useRef<HTMLElement>(null);
   const ctrRef = useRef<HTMLDivElement>(null);
   const scrlRef = useRef<HTMLDivElement>(null);
@@ -78,8 +80,11 @@ export function MermaidDiagram({ chart, caption = 'Diagram' }: MermaidDiagramPro
 
   useEffect(() => {
     let active = true;
+    const resolvedDiagramId = id;
+    const resolvedGroupKey = mermaidGroupKey || 'default';
 
     const render = async () => {
+      onRenderStateChange?.(resolvedGroupKey, resolvedDiagramId, 'rendering');
       try {
         const m = (await import('mermaid')).default;
         m.initialize(mermaidCfg);
@@ -96,6 +101,7 @@ export function MermaidDiagram({ chart, caption = 'Diagram' }: MermaidDiagramPro
 
         svgEl.setAttribute('role', 'img');
         svgEl.setAttribute('aria-label', caption);
+        svgEl.setAttribute('data-pdf-mermaid', 'true');
         svgEl.setAttribute('preserveAspectRatio', 'xMinYMin meet');
 
         // Extract viewBox and set dimensions
@@ -137,12 +143,18 @@ export function MermaidDiagram({ chart, caption = 'Diagram' }: MermaidDiagramPro
         if (active) {
           setError(`Failed to render: ${(e as Error).message}`);
         }
+      } finally {
+        if (active) {
+          onRenderStateChange?.(resolvedGroupKey, resolvedDiagramId, 'done');
+        }
       }
     };
 
     render();
-    return () => { active = false; };
-  }, [chart, caption, id]);
+    return () => {
+      active = false;
+    };
+  }, [caption, chart, id, mermaidGroupKey, onRenderStateChange]);
 
   const toolbarStyle = {
     display: 'flex',
@@ -161,6 +173,7 @@ export function MermaidDiagram({ chart, caption = 'Diagram' }: MermaidDiagramPro
     <figure
       ref={figRef}
       aria-label={caption}
+      data-pdf-mermaid="true"
       style={{
         margin: '1.5rem 0',
         width: '100%',

@@ -9,7 +9,7 @@
  *  4. For each parsed solution a Markdown document is generated.
  *  5. The generated documentation is displayed in the MarkdownViewer.
  *  6. A sidebar lists all parsed solutions for navigation.
- *  7. Users can export each document as a .md file.
+ *  7. Users can export each document as .md, accessible .pdf, or table-focused .xlsx.
  *
  * WCAG 2.2 compliance:
  *  - 2.4.1 Bypass Blocks: A "Skip to main content" link is the first
@@ -20,7 +20,7 @@
  *    user must click Generate.
  */
 
-import { useState, useCallback, useEffect, type ChangeEvent } from 'react';
+import { useState, useCallback, useEffect, useRef, type ChangeEvent } from 'react';
 import { saveAs } from 'file-saver';
 import JSZip from 'jszip';
 import { DropZone }          from './components/ui/DropZone';
@@ -61,6 +61,7 @@ interface SolutionResult {
   fileName:  string;
   isConsolidated?: boolean;
   isDiagramCompanion?: boolean;
+  isImportedMarkdown?: boolean;
 }
 
 type ErdMode = 'compact' | 'detailed-relationships';
@@ -234,6 +235,52 @@ function markdownFileNameForSolution(solution: ParsedSolution, isDiagramFile = f
   );
 }
 
+function markdownTitleFromFileName(fileName: string): string {
+  const withoutExtension = fileName.replace(/\.md$/i, '').trim();
+  return withoutExtension.length > 0 ? withoutExtension : 'Imported Markdown';
+}
+
+function buildImportedMarkdownSolution(displayName: string): ParsedSolution {
+  const uniqueName = displayName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'imported_markdown';
+
+  return {
+    metadata: {
+      uniqueName,
+      displayName,
+      version: 'Imported Markdown',
+      publisherName: 'External Markdown',
+      isManaged: false,
+      dependencies: [],
+      componentInventory: [],
+    },
+    entities: [],
+    optionSets: [],
+    forms: [],
+    views: [],
+    processes: [],
+    apps: [],
+    agents: [],
+    aiModels: [],
+    desktopFlows: [],
+    dataflows: [],
+    customApis: [],
+    offlineProfiles: [],
+    webResources: [],
+    securityRoles: [],
+    fieldSecurityProfiles: [],
+    connectionReferences: [],
+    environmentVariables: [],
+    emailTemplates: [],
+    reports: [],
+    dashboards: [],
+    pluginAssemblies: [],
+    warnings: [],
+  };
+}
+
 function readSavedConfigurations(): SavedDocumentConfiguration[] {
   try {
     const raw = localStorage.getItem(LOCAL_CONFIG_STORAGE_KEY);
@@ -337,8 +384,10 @@ function rebuildResults(
   documentContext: DocumentContext,
   documentationSettings: DocumentationSettings,
 ): SolutionResult[] {
+  const importedMarkdownResults = results.filter((entry) => entry.isImportedMarkdown);
+
   const base = sortSolutionResults(results
-    .filter((entry) => !entry.isConsolidated && !entry.isDiagramCompanion)
+    .filter((entry) => !entry.isConsolidated && !entry.isDiagramCompanion && !entry.isImportedMarkdown)
     .flatMap((entry) => {
       const markdown = generateMarkdown(entry.solution, { erdMode, documentContext, documentationSettings });
       if (!documentationSettings.separateDiagramsDocument) {
@@ -378,10 +427,10 @@ function rebuildResults(
     }));
 
   if (base.length > 1) {
-    return [...buildConsolidatedResult(base, erdMode, documentContext, documentationSettings), ...base];
+    return [...buildConsolidatedResult(base, erdMode, documentContext, documentationSettings), ...base, ...importedMarkdownResults];
   }
 
-  return base;
+  return [...base, ...importedMarkdownResults];
 }
 
 /**
@@ -444,6 +493,7 @@ export default function App() {
   const [manualAttributeNamesInput, setManualAttributeNamesInput] = useState<string>('');
   /** True when switching to a heavy markdown document so we can show feedback */
   const [isViewerLoading, setIsViewerLoading] = useState<boolean>(false);
+  const openMarkdownInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -664,11 +714,13 @@ export default function App() {
     }
 
     if (newResults.length > 0) {
-      const existingBase = results.filter((r) => !r.isConsolidated && !r.isDiagramCompanion);
+      const existingBase = results.filter((r) => !r.isConsolidated && !r.isDiagramCompanion && !r.isImportedMarkdown);
+      const existingImported = results.filter((r) => r.isImportedMarkdown);
       const mergedBase = sortSolutionResults([...existingBase, ...newResults]);
-      const nextResults = mergedBase.length > 1
+      const generatedResults = mergedBase.length > 1
         ? [...buildConsolidatedResult(mergedBase, erdMode, documentContext, documentationSettings), ...mergedBase]
         : mergedBase;
+      const nextResults = [...generatedResults, ...existingImported];
 
       setResults(nextResults);
       setActiveIdx(nextResults.length > 1 && nextResults[0].isConsolidated ? 0 : Math.max(0, nextResults.length - 1));
@@ -687,6 +739,45 @@ export default function App() {
     // Clear progress indicators after a brief delay
     setTimeout(() => setProcessing([]), 1500);
   }, [results, erdMode, documentContext, documentationSettings, updateProcessingEntry]);
+
+  const handleOpenMarkdownClick = useCallback(() => {
+    openMarkdownInputRef.current?.click();
+  }, []);
+
+  const handleOpenMarkdownFiles = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).filter((file) => /\.md$/i.test(file.name));
+    event.target.value = '';
+
+    if (files.length === 0) {
+      setStatusMsg('Please select one or more Markdown (.md) files to open.');
+      return;
+    }
+
+    setStatusMsg(`Opening ${files.length} Markdown file${files.length > 1 ? 's' : ''}…`);
+
+    const importedResults: SolutionResult[] = [];
+    for (const file of sortFilesByName(files)) {
+      const markdown = await file.text();
+      const displayName = markdownTitleFromFileName(file.name);
+      importedResults.push({
+        solution: buildImportedMarkdownSolution(displayName),
+        markdown,
+        fileName: toSafeMarkdownFileName(file.name, displayName),
+        isImportedMarkdown: true,
+      });
+    }
+
+    const existingGeneratedBase = results.filter((r) => !r.isConsolidated && !r.isDiagramCompanion && !r.isImportedMarkdown);
+    const existingImported = results.filter((r) => r.isImportedMarkdown);
+    const generatedResults = existingGeneratedBase.length > 1
+      ? [...buildConsolidatedResult(existingGeneratedBase, erdMode, documentContext, documentationSettings), ...existingGeneratedBase]
+      : existingGeneratedBase;
+
+    const nextResults = [...generatedResults, ...existingImported, ...importedResults];
+    setResults(nextResults);
+    setActiveIdx(Math.max(0, nextResults.length - importedResults.length));
+    setStatusMsg(`Loaded ${importedResults.length} Markdown document${importedResults.length > 1 ? 's' : ''}.`);
+  }, [documentContext, documentationSettings, erdMode, results]);
 
   const handleToggleErdMode = useCallback(() => {
     const nextMode: ErdMode = erdMode === 'detailed-relationships' ? 'compact' : 'detailed-relationships';
@@ -882,6 +973,27 @@ export default function App() {
 
           {/* Header actions */}
           <div className={styles.headerActions}>
+            <input
+              ref={openMarkdownInputRef}
+              type="file"
+              accept=".md,text/markdown"
+              multiple
+              onChange={handleOpenMarkdownFiles}
+              className={styles.hiddenFileInput}
+              aria-hidden="true"
+              tabIndex={-1}
+            />
+
+            <button
+              type="button"
+              className={styles.headerBtn}
+              onClick={handleOpenMarkdownClick}
+              disabled={isProcessing}
+              aria-label="Open previously generated Markdown files"
+            >
+              📂 Open .md
+            </button>
+
             {hasResults && !isProcessing && (
               <button
                 type="button"
@@ -1362,6 +1474,7 @@ export default function App() {
                   title={activeResult.solution.metadata.displayName || activeResult.solution.metadata.uniqueName}
                   fileName={activeResult.fileName}
                   onExport={handleExport}
+                  onStatusMessage={setStatusMsg}
                 />
               )}
             </div>

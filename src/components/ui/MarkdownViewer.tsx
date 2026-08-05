@@ -10,6 +10,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { MermaidDiagram } from './MermaidDiagram';
+import { exportRenderedMarkdownAsPdf } from '../../utils/pdfExport';
+import { exportMarkdownTablesToExcel } from '../../utils/tableExport';
 import styles from './MarkdownViewer.module.css';
 
 export interface MarkdownViewerProps {
@@ -17,6 +19,7 @@ export interface MarkdownViewerProps {
   title?: string;
   fileName?: string;
   onExport?: () => void;
+  onStatusMessage?: (message: string) => void;
 }
 
 /**
@@ -45,10 +48,40 @@ function slugifyHeading(children: ReactNode): string {
 /**
  * Renders Markdown with diagram support, raw/rendered toggle, and export.
  */
-export function MarkdownViewer({ markdown, title, fileName, onExport }: MarkdownViewerProps) {
+export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMessage }: MarkdownViewerProps) {
   const [showRaw, setShowRaw] = useState(false);
   const [copyMsg, setCopyMsg] = useState('');
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [mermaidProgressState, setMermaidProgressState] = useState<{
+    docKey: string;
+    renderedIds: Set<string>;
+  }>({ docKey: '', renderedIds: new Set() });
   const contentRef = useRef<HTMLDivElement>(null);
+
+  const totalMermaidDiagrams = useMemo(() => (markdown.match(/```mermaid/g) ?? []).length, [markdown]);
+  const mermaidDocumentKey = useMemo(
+    () => `${fileName || title || 'document'}::${markdown.length}::${totalMermaidDiagrams}`,
+    [fileName, markdown.length, title, totalMermaidDiagrams],
+  );
+
+  const handleMermaidRenderState = useCallback((groupKey: string, diagramId: string, state: 'rendering' | 'done') => {
+    setMermaidProgressState((prev) => {
+      if (groupKey !== mermaidDocumentKey) {
+        return prev;
+      }
+
+      const base = prev.docKey === groupKey
+        ? prev
+        : { docKey: groupKey, renderedIds: new Set<string>() };
+      const next = new Set(base.renderedIds);
+      if (state === 'done') {
+        next.add(diagramId);
+      } else {
+        next.delete(diagramId);
+      }
+      return { docKey: groupKey, renderedIds: next };
+    });
+  }, [mermaidDocumentKey]);
 
   const scrollToHeading = useCallback((href: string) => {
     if (!contentRef.current || !href.startsWith('#')) return false;
@@ -99,7 +132,14 @@ export function MarkdownViewer({ markdown, title, fileName, onExport }: Markdown
       }
       const src = String(children).replace(/\n$/, '');
       const cap = src.match(/%%\s*(.+?)\s*%%/)?.[1] ?? 'Diagram';
-      return <MermaidDiagram chart={src} caption={cap} />;
+      return (
+        <MermaidDiagram
+          chart={src}
+          caption={cap}
+          mermaidGroupKey={mermaidDocumentKey}
+          onRenderStateChange={handleMermaidRenderState}
+        />
+      );
     },
     h1: makeHeading('h1'),
     h2: makeHeading('h2'),
@@ -121,7 +161,15 @@ export function MarkdownViewer({ markdown, title, fileName, onExport }: Markdown
         <table {...props}>{children}</table>
       </div>
     ),
-  }), [scrollToHeading]);
+  }), [handleMermaidRenderState, mermaidDocumentKey, scrollToHeading]);
+
+  const renderedMermaidCount = Math.min(
+    mermaidProgressState.docKey === mermaidDocumentKey ? mermaidProgressState.renderedIds.size : 0,
+    totalMermaidDiagrams,
+  );
+  const mermaidProgressLabel = totalMermaidDiagrams > 0
+    ? `Diagrams ${renderedMermaidCount}/${totalMermaidDiagrams} rendered`
+    : 'No diagrams in document';
 
   const markdownHasRawHtml = useMemo(() => /<\/?[a-z][\s\S]*>/i.test(markdown), [markdown]);
   const rehypePlugins = useMemo(() => (markdownHasRawHtml ? [rehypeRaw] : []), [markdownHasRawHtml]);
@@ -163,6 +211,86 @@ export function MarkdownViewer({ markdown, title, fileName, onExport }: Markdown
     }
   }, [scrollToHeading]);
 
+  const handleExportPdf = useCallback(async () => {
+    if (isExportingPdf) {
+      return;
+    }
+
+    if (showRaw) {
+      const msg = 'Switch to Rendered view to export diagrams in PDF.';
+      setCopyMsg(msg);
+      onStatusMessage?.(msg);
+      return;
+    }
+
+    if (!contentRef.current) {
+      const msg = 'PDF export is unavailable until the document finishes rendering.';
+      setCopyMsg(msg);
+      onStatusMessage?.(msg);
+      return;
+    }
+
+    const clone = contentRef.current.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('button, details, summary, [role="toolbar"]').forEach((node) => node.remove());
+
+    const exportedTitle = title?.trim() || fileName?.replace(/\.[^.]+$/g, '') || 'PP-MD Documentation';
+    const headingNode = document.createElement('h1');
+    headingNode.textContent = exportedTitle;
+    const bodyHtml = `${headingNode.outerHTML}${clone.innerHTML}`;
+
+    const progressMsg = 'Preparing PDF export. Save dialog should appear shortly.';
+    setIsExportingPdf(true);
+    setCopyMsg(progressMsg);
+    onStatusMessage?.(progressMsg);
+
+    // Yield so the status toast paints before heavy export preparation begins.
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+
+    let result;
+    try {
+      result = await exportRenderedMarkdownAsPdf({
+        title: exportedTitle,
+        fileName: fileName || `${exportedTitle}.pdf`,
+        renderedHtml: bodyHtml,
+        language: document.documentElement.lang || 'en',
+      });
+    } catch (error) {
+      result = {
+        cancelled: false,
+        error: `PDF export failed: ${error instanceof Error ? error.message : 'Unexpected renderer exception.'}`,
+      };
+    } finally {
+      setIsExportingPdf(false);
+    }
+
+    if (result.cancelled) {
+      if (result.error) {
+        setCopyMsg(result.error);
+        onStatusMessage?.(result.error);
+      }
+      return;
+    }
+
+    if (result.error) {
+      setCopyMsg(result.error);
+      onStatusMessage?.(result.error);
+      return;
+    }
+
+    const msg = 'PDF exported successfully.';
+    setCopyMsg(msg);
+    onStatusMessage?.(msg);
+  }, [fileName, isExportingPdf, onStatusMessage, showRaw, title]);
+
+  const handleExportExcel = useCallback(() => {
+    const workbookFileName = fileName || title || 'PP-MD Tables.xlsx';
+    const result = exportMarkdownTablesToExcel(markdown, workbookFileName);
+    setCopyMsg(result.message);
+    onStatusMessage?.(result.message);
+  }, [fileName, markdown, onStatusMessage, title]);
+
   return (
     <section
       className={styles.viewer}
@@ -178,6 +306,7 @@ export function MarkdownViewer({ markdown, title, fileName, onExport }: Markdown
           </h2>
         )}
         <div className={styles.actions}>
+          <span className={styles.diagramProgress} aria-live="polite">{mermaidProgressLabel}</span>
           <button
             type="button"
             className={styles.toolbarBtn}
@@ -205,6 +334,29 @@ export function MarkdownViewer({ markdown, title, fileName, onExport }: Markdown
               ⬇️ Export .md
             </button>
           )}
+          <button
+            type="button"
+            className={`${styles.toolbarBtn} ${styles.primary}`}
+            onClick={handleExportExcel}
+            aria-label="Download Markdown tables as an Excel workbook with one tab per table"
+            title="Export all Markdown tables to Excel"
+          >
+            ⬇️ Export .xlsx
+          </button>
+          <button
+            type="button"
+            className={`${styles.toolbarBtn} ${styles.primary}`}
+            onClick={handleExportPdf}
+            disabled={isExportingPdf}
+            aria-label="Download rendered documentation as an accessible PDF file"
+            title={showRaw
+              ? 'Switch to Rendered view for diagram-inclusive PDF export'
+              : isExportingPdf
+                ? 'Preparing PDF export'
+                : 'Export rendered documentation to PDF'}
+          >
+            {isExportingPdf ? '⏳ Preparing PDF...' : '⬇️ Export .pdf'}
+          </button>
         </div>
       </div>
       {copyMsg && (

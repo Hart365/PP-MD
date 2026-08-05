@@ -2,6 +2,22 @@
 
 ---
 
+## Version 1.1.21
+
+This release consolidates the main improvements delivered since version 1.1.6, covering export reliability, reporting quality, and the desktop experience.
+
+### Highlights
+
+- PDF export handling for Mermaid diagrams is much more reliable, with better text sizing, multi-page diagram splitting, and improved preservation of labels and styling.
+- Excel export output is cleaner and more consistent, with better table structure, header handling, and worksheet formatting.
+- The desktop app now provides clearer export progress feedback, direct loading of previously generated Markdown files, and stronger accessibility and regression coverage.
+
+### Quality
+
+- Expanded automated regression and accessibility checks to keep PDF, Excel, and viewer workflows stable.
+
+---
+
 ## Version 1.1.8
 
 ### Fixes

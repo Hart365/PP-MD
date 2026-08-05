@@ -95,6 +95,14 @@
   gap: 0.5rem;
 }
 
+.hiddenFileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .headerBtn {
   display: inline-flex;
   align-items: center;

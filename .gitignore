@@ -41,3 +41,8 @@ docs/local-implementation-plan.md
 # Automated test artifacts
 playwright-report/
 test-results/
+
+# Local sample/export artifacts with DD ADAPT naming
+*DD*ADAPT*
+*dd*adapt*
+DD ADAPT*
