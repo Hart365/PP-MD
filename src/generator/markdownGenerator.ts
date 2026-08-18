@@ -84,6 +84,11 @@ export interface DocumentationMetadataSettings {
   excludeVirtualAttributes: boolean;
   attributeSelectionMode: AttributeSelectionMode;
   manuallySelectedAttributes: string[];
+  /** Column Metadata visibility flags */
+  includeTypeColumn: boolean;
+  includeCustomColumn: boolean;
+  includeNotesColumn: boolean;
+  includeDescriptionColumn: boolean;
 }
 
 export interface DocumentationSecurityRoleFilters {
@@ -134,6 +139,10 @@ export const DEFAULT_DOCUMENTATION_SETTINGS: DocumentationSettings = {
     excludeVirtualAttributes: false,
     attributeSelectionMode: 'all',
     manuallySelectedAttributes: [],
+    includeTypeColumn: true,
+    includeCustomColumn: true,
+    includeNotesColumn: true,
+    includeDescriptionColumn: true,
   },
   securityRoleFilters: {
     onlyTablesInCurrentSolution: false,
@@ -456,6 +465,10 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
         ? settings.metadata.attributeSelectionMode
         : DEFAULT_DOCUMENTATION_SETTINGS.metadata.attributeSelectionMode,
       manuallySelectedAttributes: manualAttributes,
+      includeTypeColumn: settings?.metadata?.includeTypeColumn ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeTypeColumn,
+      includeCustomColumn: settings?.metadata?.includeCustomColumn ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeCustomColumn,
+      includeNotesColumn: settings?.metadata?.includeNotesColumn ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeNotesColumn,
+      includeDescriptionColumn: settings?.metadata?.includeDescriptionColumn ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeDescriptionColumn,
     },
     securityRoleFilters: {
       onlyTablesInCurrentSolution: settings?.securityRoleFilters?.onlyTablesInCurrentSolution ?? DEFAULT_DOCUMENTATION_SETTINGS.securityRoleFilters.onlyTablesInCurrentSolution,
@@ -1621,16 +1634,21 @@ function generateEntitiesSection(
       const includeFieldSecurityFlags = metadataSettings.includeFieldSecurityFlags;
       const includeAdvancedFind = metadataSettings.includeValidForAdvancedFindInfo;
       const includeMetadataDiagnostics = metadataSettings.includeMetadataDiagnosticInfo;
+      const includeTypeColumn = metadataSettings.includeTypeColumn;
+      const includeCustomColumn = metadataSettings.includeCustomColumn;
+      const includeNotesColumn = metadataSettings.includeNotesColumn;
+      const includeDescriptionColumn = metadataSettings.includeDescriptionColumn;
 
-      const headers = ['Display Name', 'Schema Name', 'Type'];
+      const headers = ['Display Name', 'Schema Name'];
+      if (includeTypeColumn) headers.push('Type');
       if (includeRequiredInfo) headers.push('Required');
-      headers.push('Custom');
+      if (includeCustomColumn) headers.push('Custom');
       if (includeAuditInfo) headers.push('Audited');
       if (includeFieldSecurityFlags) headers.push('Field Security');
       if (includeAdvancedFind) headers.push('Advanced Find');
       if (includeMetadataDiagnostics) headers.push('Metadata Source');
-      headers.push('Notes');
-      if (hasDescriptions) headers.push('Description');
+      if (includeNotesColumn) headers.push('Notes');
+      if (includeDescriptionColumn && hasDescriptions) headers.push('Description');
 
       lines.push(`| ${headers.join(' | ')} |`);
       lines.push(`| ${headers.map(() => '---').join(' | ')} |`);
@@ -1654,8 +1672,11 @@ function generateEntitiesSection(
         const rowCells: string[] = [
           mdEscape(attr.displayName || attr.name),
           `\`${mdEscape(attr.name)}\``,
-          attr.type,
         ];
+
+        if (includeTypeColumn) {
+          rowCells.push(attr.type);
+        }
 
         if (includeRequiredInfo) {
           const requiredLevel = attr.requiredLevel ? ` (${attr.requiredLevel})` : '';
@@ -1663,7 +1684,9 @@ function generateEntitiesSection(
           rowCells.push(`${isRequired ? '✅ Yes' : 'No'}${requiredLevel}`);
         }
 
-        rowCells.push(attr.isCustom ? '✳️ Yes' : 'No');
+        if (includeCustomColumn) {
+          rowCells.push(attr.isCustom ? '✳️ Yes' : 'No');
+        }
 
         if (includeAuditInfo) {
           rowCells.push(attr.isAuditEnabled === undefined ? '–' : attr.isAuditEnabled ? '🔍 Yes' : 'No');
@@ -1695,8 +1718,10 @@ function generateEntitiesSection(
           rowCells.push(mdEscape(diagParts.join(', ')) || '–');
         }
 
-        rowCells.push(mdEscape(notes.join(', ')));
-        if (hasDescriptions) {
+        if (includeNotesColumn) {
+          rowCells.push(mdEscape(notes.join(', ')));
+        }
+        if (includeDescriptionColumn && hasDescriptions) {
           rowCells.push(mdEscape(attr.description));
         }
 

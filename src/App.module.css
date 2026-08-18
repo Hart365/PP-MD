@@ -348,6 +348,63 @@
   overflow: hidden;
 }
 
+/* ── Collapsible section panels ──────────────────────────────────── */
+
+.settingsPanels {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.collapsiblePanel {
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.collapsibleToggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.7rem 0.9rem;
+  border: 0;
+  background: var(--color-surface-alt);
+  color: var(--color-text-primary);
+  font-size: 0.95rem;
+  font-weight: 650;
+  cursor: pointer;
+  text-align: left;
+}
+
+.collapsibleToggle:hover {
+  background: var(--color-border);
+}
+
+.collapsibleContent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.85rem 0.9rem;
+}
+
+/* Nested collapsible inside another collapsible */
+.collapsibleContent .collapsiblePanel {
+  background: var(--color-bg);
+}
+
+.collapsibleContent .collapsibleToggle {
+  background: var(--color-surface);
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 0.55rem 0.75rem;
+}
+
+.collapsibleContent .collapsibleContent {
+  padding: 0.6rem 0.75rem;
+}
+
 .paletteToggle {
   width: 100%;
   display: flex;

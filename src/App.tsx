@@ -149,6 +149,14 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
           ? settings.metadata.attributeSelectionMode
           : APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.attributeSelectionMode,
       manuallySelectedAttributes: normalizedManualAttributes,
+      includeTypeColumn:
+        settings?.metadata?.includeTypeColumn ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeTypeColumn,
+      includeCustomColumn:
+        settings?.metadata?.includeCustomColumn ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeCustomColumn,
+      includeNotesColumn:
+        settings?.metadata?.includeNotesColumn ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeNotesColumn,
+      includeDescriptionColumn:
+        settings?.metadata?.includeDescriptionColumn ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeDescriptionColumn,
     },
     securityRoleFilters: {
       onlyTablesInCurrentSolution:
@@ -506,6 +514,13 @@ export default function App() {
   const [isViewerLoading, setIsViewerLoading] = useState<boolean>(false);
   /** Whether the Mermaid palette section is expanded on the welcome screen */
   const [isMermaidPaletteExpanded, setIsMermaidPaletteExpanded] = useState<boolean>(false);
+  /** Collapsible section open/closed state */
+  const [isDocHeaderExpanded,       setIsDocHeaderExpanded]       = useState<boolean>(true);
+  const [isDocOptionsExpanded,      setIsDocOptionsExpanded]      = useState<boolean>(true);
+  const [isTableOptionsExpanded,    setIsTableOptionsExpanded]    = useState<boolean>(false);
+  const [isSecurityRoleExpanded,    setIsSecurityRoleExpanded]    = useState<boolean>(false);
+  const [isDiagramOptionsExpanded,  setIsDiagramOptionsExpanded]  = useState<boolean>(false);
+  const [isColumnMetadataExpanded,  setIsColumnMetadataExpanded]  = useState<boolean>(true);
   const openMarkdownInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1099,332 +1114,461 @@ export default function App() {
                 documentation — including architecture and ERD Mermaid diagrams.
               </p>
 
-              <section className={styles.contextPanel} aria-labelledby="context-heading">
-                <h3 id="context-heading" className={styles.contextHeading}>Document Header Details</h3>
+              <section className={styles.settingsPanels} aria-label="Documentation settings">
 
-                <div className={styles.contextRow}>
-                  <label htmlFor="config-select" className={styles.contextLabel}>Configuration</label>
-                  <div className={styles.contextSelectRow}>
-                    <select
-                      id="config-select"
-                      className={styles.contextSelect}
-                      value={selectedConfigId}
-                      onChange={handleConfigurationSelect}
-                      aria-label="Select document configuration"
-                    >
-                      <option value="custom">Custom (manual entry)</option>
-                      {configurations.map((config) => (
-                        <option key={config.id} value={config.id}>{config.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className={styles.contextDeleteBtn}
-                      onClick={() => handleDeleteConfiguration(selectedConfigId)}
-                      disabled={selectedConfigId === 'custom'}
-                      aria-label="Delete selected configuration"
-                      title="Delete selected configuration"
-                    >
-                      🗑
-                    </button>
-                  </div>
-                </div>
-
-                <div className={styles.contextSaveRow}>
-                  <input
-                    type="text"
-                    className={styles.contextNameInput}
-                    placeholder="Configuration name"
-                    value={newConfigName}
-                    onChange={(e) => setNewConfigName(e.target.value)}
-                    aria-label="Configuration name"
-                  />
+                {/* ── Document Header Details ─────────────────────────── */}
+                <div className={styles.collapsiblePanel}>
                   <button
                     type="button"
-                    className={styles.contextSaveBtn}
-                    onClick={handleSaveConfiguration}
+                    className={styles.collapsibleToggle}
+                    onClick={() => setIsDocHeaderExpanded((prev) => !prev)}
+                    aria-expanded={isDocHeaderExpanded}
+                    aria-controls="doc-header-content"
                   >
-                    Save Configuration
+                    <span>Document Header Details</span>
+                    <span aria-hidden="true">{isDocHeaderExpanded ? '▾' : '▸'}</span>
                   </button>
-                </div>
+                  {isDocHeaderExpanded && (
+                    <div id="doc-header-content" className={styles.collapsibleContent}>
+                      <div className={styles.contextRow}>
+                        <label htmlFor="config-select" className={styles.contextLabel}>Configuration</label>
+                        <div className={styles.contextSelectRow}>
+                          <select
+                            id="config-select"
+                            className={styles.contextSelect}
+                            value={selectedConfigId}
+                            onChange={handleConfigurationSelect}
+                            aria-label="Select document configuration"
+                          >
+                            <option value="custom">Custom (manual entry)</option>
+                            {configurations.map((config) => (
+                              <option key={config.id} value={config.id}>{config.name}</option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            className={styles.contextDeleteBtn}
+                            onClick={() => handleDeleteConfiguration(selectedConfigId)}
+                            disabled={selectedConfigId === 'custom'}
+                            aria-label="Delete selected configuration"
+                            title="Delete selected configuration"
+                          >
+                            🗑
+                          </button>
+                        </div>
+                      </div>
 
-                {configLoadError && (
-                  <p className={styles.contextWarning} role="alert">⚠ {configLoadError}</p>
-                )}
+                      <div className={styles.contextSaveRow}>
+                        <input
+                          type="text"
+                          className={styles.contextNameInput}
+                          placeholder="Configuration name"
+                          value={newConfigName}
+                          onChange={(e) => setNewConfigName(e.target.value)}
+                          aria-label="Configuration name"
+                        />
+                        <button
+                          type="button"
+                          className={styles.contextSaveBtn}
+                          onClick={handleSaveConfiguration}
+                        >
+                          Save Configuration
+                        </button>
+                      </div>
 
-                <div className={styles.contextGrid}>
-                  <label className={styles.contextField}>
-                    <span>Client</span>
-                    <input
-                      type="text"
-                      value={documentContext.client}
-                      onChange={(e) => handleContextChange('client', e.target.value)}
-                    />
-                  </label>
-                  <label className={styles.contextField}>
-                    <span>Contract</span>
-                    <input
-                      type="text"
-                      value={documentContext.contract}
-                      onChange={(e) => handleContextChange('contract', e.target.value)}
-                    />
-                  </label>
-                  <label className={styles.contextField}>
-                    <span>Contract ID/SoW</span>
-                    <input
-                      type="text"
-                      value={documentContext.sow}
-                      onChange={(e) => handleContextChange('sow', e.target.value)}
-                    />
-                  </label>
-                  <label className={styles.contextField}>
-                    <span>Project</span>
-                    <input
-                      type="text"
-                      value={documentContext.project}
-                      onChange={(e) => handleContextChange('project', e.target.value)}
-                    />
-                  </label>
-                  <label className={styles.contextField}>
-                    <span>Sprint</span>
-                    <input
-                      type="text"
-                      value={documentContext.sprint}
-                      onChange={(e) => handleContextChange('sprint', e.target.value)}
-                    />
-                  </label>
-                  <label className={styles.contextField}>
-                    <span>Release Date</span>
-                    <input
-                      type="date"
-                      value={documentContext.releaseDate}
-                      onChange={(e) => handleContextChange('releaseDate', e.target.value)}
-                    />
-                  </label>
-                </div>
+                      {configLoadError && (
+                        <p className={styles.contextWarning} role="alert">⚠ {configLoadError}</p>
+                      )}
 
-                <div className={styles.contextRow}>
-                  <h3 className={styles.contextHeading}>Document Options</h3>
-
-                  <label htmlFor="detail-level" className={styles.contextLabel}>Documentation Detail Level</label>
-                  <select
-                    id="detail-level"
-                    className={styles.contextSelect}
-                    value={documentationSettings.detailLevel}
-                    onChange={handleDetailLevelChange}
-                    aria-label="Select documentation detail level"
-                  >
-                    <option value="detailed">Detailed</option>
-                    <option value="summary">Summary</option>
-                  </select>
-
-                  <label htmlFor="attribute-selection-mode" className={styles.contextLabel}>Attribute Selection Mode</label>
-                  <select
-                    id="attribute-selection-mode"
-                    className={styles.contextSelect}
-                    value={documentationSettings.metadata.attributeSelectionMode}
-                    onChange={handleAttributeSelectionModeChange}
-                    aria-label="Select attribute selection mode"
-                  >
-                    <option value="all">All</option>
-                    <option value="custom-only">Custom Only</option>
-                    <option value="attributes-on-form">Attributes On Form</option>
-                    <option value="attributes-not-on-form">Attributes Not On Form</option>
-                    <option value="option-set-focused">Option-Set Focused</option>
-                    <option value="manually-selected">Manually Selected</option>
-                    <option value="unmanaged-only">Unmanaged Only</option>
-                  </select>
-                </div>
-
-                <div className={styles.scopeGrid}>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.scope.flows}
-                      onChange={() => handleScopeToggle('flows')}
-                    />
-                    <span>Include Flows & Automation</span>
-                  </label>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.scope.apps}
-                      onChange={() => handleScopeToggle('apps')}
-                    />
-                    <span>Include Apps</span>
-                  </label>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.scope.security}
-                      onChange={() => handleScopeToggle('security')}
-                    />
-                    <span>Include Security</span>
-                  </label>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.scope.integration}
-                      onChange={() => handleScopeToggle('integration')}
-                    />
-                    <span>Include Integration</span>
-                  </label>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.scope.plugins}
-                      onChange={() => handleScopeToggle('plugins')}
-                    />
-                    <span>Include Plugins</span>
-                  </label>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.scope.reports}
-                      onChange={() => handleScopeToggle('reports')}
-                    />
-                    <span>Include Reports & Dashboards</span>
-                  </label>
-                </div>
-
-                <h4 className={styles.optionsSubheading}>Table Options</h4>
-
-                <label className={styles.contextField}>
-                  <span>Manual Attributes (comma-separated schema names)</span>
-                  <input
-                    type="text"
-                    value={manualAttributeNamesInput}
-                    onChange={handleManualAttributesInputChange}
-                    disabled={documentationSettings.metadata.attributeSelectionMode !== 'manually-selected'}
-                    placeholder="new_name, new_status"
-                    aria-label="Manual attribute schema names"
-                  />
-                </label>
-
-                <div className={styles.scopeGrid}>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.metadata.includeDefaultColumns}
-                      onChange={() => handleMetadataToggle('includeDefaultColumns')}
-                    />
-                    <span>Include Default Columns</span>
-                  </label>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.metadata.includeAuditInfo}
-                      onChange={() => handleMetadataToggle('includeAuditInfo')}
-                    />
-                    <span>Include Audit Info</span>
-                  </label>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.metadata.includeFieldSecurityFlags}
-                      onChange={() => handleMetadataToggle('includeFieldSecurityFlags')}
-                    />
-                    <span>Include Field Security Flags</span>
-                  </label>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.metadata.includeRequiredLevelInfo}
-                      onChange={() => handleMetadataToggle('includeRequiredLevelInfo')}
-                    />
-                    <span>Include Required-Level Info</span>
-                  </label>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.metadata.includeValidForAdvancedFindInfo}
-                      onChange={() => handleMetadataToggle('includeValidForAdvancedFindInfo')}
-                    />
-                    <span>Include Valid-for-Advanced-Find</span>
-                  </label>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.metadata.excludeVirtualAttributes}
-                      onChange={() => handleMetadataToggle('excludeVirtualAttributes')}
-                    />
-                    <span>Exclude Virtual Attributes</span>
-                  </label>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.metadata.includeMetadataDiagnosticInfo}
-                      onChange={() => handleMetadataToggle('includeMetadataDiagnosticInfo')}
-                    />
-                    <span>Include Metadata Source Diagnostics</span>
-                  </label>
-                </div>
-
-                <h4 className={styles.optionsSubheading}>Security Role Options</h4>
-
-                <div className={styles.scopeGrid}>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.securityRoleFilters.onlyTablesInCurrentSolution}
-                      onChange={() => handleSecurityRoleFilterToggle('onlyTablesInCurrentSolution')}
-                    />
-                    <span>Only Include Tables in Current Solution</span>
-                  </label>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.securityRoleFilters.onlyCustomTables}
-                      onChange={() => handleSecurityRoleFilterToggle('onlyCustomTables')}
-                    />
-                    <span>Only Include Custom Tables in Security Roles</span>
-                  </label>
-                </div>
-
-                <h4 className={styles.optionsSubheading}>Diagram Options</h4>
-                <div className={styles.scopeGrid}>
-                  <label className={styles.scopeItem}>
-                    <input
-                      type="checkbox"
-                      checked={documentationSettings.separateDiagramsDocument}
-                      onChange={handleSeparateDiagramsDocumentToggle}
-                    />
-                    <span>Generate Companion Diagrams Document</span>
-                  </label>
-                </div>
-
-                <div className={styles.palettePanel}>
-                  <button
-                    type="button"
-                    className={styles.paletteToggle}
-                    onClick={() => setIsMermaidPaletteExpanded((prev) => !prev)}
-                    aria-expanded={isMermaidPaletteExpanded}
-                  >
-                    <span>Mermaid Diagram Colors</span>
-                    <span>{isMermaidPaletteExpanded ? '▾' : '▸'}</span>
-                  </button>
-
-                  {isMermaidPaletteExpanded && (
-                    <div className={styles.paletteGrid}>
-                      {([
-                        ['sourceOne', 'Primary / Source 1'],
-                        ['sourceTwo', 'Secondary / Source 2'],
-                        ['sourceThree', 'Tertiary / Source 3'],
-                        ['sourceFour', 'Accent / Source 4'],
-                      ] as Array<[keyof MermaidPaletteSettings, string]>).map(([key, label]) => (
-                        <label key={key} className={styles.paletteField}>
-                          <span>{label}</span>
-                          <div className={styles.paletteInputRow}>
-                            <input
-                              type="color"
-                              value={documentationSettings.mermaidPalette[key]}
-                              onChange={(event) => handleMermaidPaletteColorChange(key, event.target.value)}
-                              aria-label={`${label} color`}
-                            />
-                            <span>{documentationSettings.mermaidPalette[key]}</span>
-                          </div>
+                      <div className={styles.contextGrid}>
+                        <label className={styles.contextField}>
+                          <span>Client</span>
+                          <input
+                            type="text"
+                            value={documentContext.client}
+                            onChange={(e) => handleContextChange('client', e.target.value)}
+                          />
                         </label>
-                      ))}
+                        <label className={styles.contextField}>
+                          <span>Contract</span>
+                          <input
+                            type="text"
+                            value={documentContext.contract}
+                            onChange={(e) => handleContextChange('contract', e.target.value)}
+                          />
+                        </label>
+                        <label className={styles.contextField}>
+                          <span>Contract ID/SoW</span>
+                          <input
+                            type="text"
+                            value={documentContext.sow}
+                            onChange={(e) => handleContextChange('sow', e.target.value)}
+                          />
+                        </label>
+                        <label className={styles.contextField}>
+                          <span>Project</span>
+                          <input
+                            type="text"
+                            value={documentContext.project}
+                            onChange={(e) => handleContextChange('project', e.target.value)}
+                          />
+                        </label>
+                        <label className={styles.contextField}>
+                          <span>Sprint</span>
+                          <input
+                            type="text"
+                            value={documentContext.sprint}
+                            onChange={(e) => handleContextChange('sprint', e.target.value)}
+                          />
+                        </label>
+                        <label className={styles.contextField}>
+                          <span>Release Date</span>
+                          <input
+                            type="date"
+                            value={documentContext.releaseDate}
+                            onChange={(e) => handleContextChange('releaseDate', e.target.value)}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Document Options ─────────────────────────────────── */}
+                <div className={styles.collapsiblePanel}>
+                  <button
+                    type="button"
+                    className={styles.collapsibleToggle}
+                    onClick={() => setIsDocOptionsExpanded((prev) => !prev)}
+                    aria-expanded={isDocOptionsExpanded}
+                    aria-controls="doc-options-content"
+                  >
+                    <span>Document Options</span>
+                    <span aria-hidden="true">{isDocOptionsExpanded ? '▾' : '▸'}</span>
+                  </button>
+                  {isDocOptionsExpanded && (
+                    <div id="doc-options-content" className={styles.collapsibleContent}>
+                      <div className={styles.contextRow}>
+                        <label htmlFor="detail-level" className={styles.contextLabel}>Documentation Detail Level</label>
+                        <select
+                          id="detail-level"
+                          className={styles.contextSelect}
+                          value={documentationSettings.detailLevel}
+                          onChange={handleDetailLevelChange}
+                          aria-label="Select documentation detail level"
+                        >
+                          <option value="detailed">Detailed</option>
+                          <option value="summary">Summary</option>
+                        </select>
+
+                        <label htmlFor="attribute-selection-mode" className={styles.contextLabel}>Attribute Selection Mode</label>
+                        <select
+                          id="attribute-selection-mode"
+                          className={styles.contextSelect}
+                          value={documentationSettings.metadata.attributeSelectionMode}
+                          onChange={handleAttributeSelectionModeChange}
+                          aria-label="Select attribute selection mode"
+                        >
+                          <option value="all">All</option>
+                          <option value="custom-only">Custom Only</option>
+                          <option value="attributes-on-form">Attributes On Form</option>
+                          <option value="attributes-not-on-form">Attributes Not On Form</option>
+                          <option value="option-set-focused">Option-Set Focused</option>
+                          <option value="manually-selected">Manually Selected</option>
+                          <option value="unmanaged-only">Unmanaged Only</option>
+                        </select>
+                      </div>
+
+                      <div className={styles.scopeGrid}>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.scope.flows}
+                            onChange={() => handleScopeToggle('flows')}
+                          />
+                          <span>Include Flows &amp; Automation</span>
+                        </label>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.scope.apps}
+                            onChange={() => handleScopeToggle('apps')}
+                          />
+                          <span>Include Apps</span>
+                        </label>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.scope.security}
+                            onChange={() => handleScopeToggle('security')}
+                          />
+                          <span>Include Security</span>
+                        </label>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.scope.integration}
+                            onChange={() => handleScopeToggle('integration')}
+                          />
+                          <span>Include Integration</span>
+                        </label>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.scope.plugins}
+                            onChange={() => handleScopeToggle('plugins')}
+                          />
+                          <span>Include Plugins</span>
+                        </label>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.scope.reports}
+                            onChange={() => handleScopeToggle('reports')}
+                          />
+                          <span>Include Reports &amp; Dashboards</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Table Options ─────────────────────────────────────── */}
+                <div className={styles.collapsiblePanel}>
+                  <button
+                    type="button"
+                    className={styles.collapsibleToggle}
+                    onClick={() => setIsTableOptionsExpanded((prev) => !prev)}
+                    aria-expanded={isTableOptionsExpanded}
+                    aria-controls="table-options-content"
+                  >
+                    <span>Table Options</span>
+                    <span aria-hidden="true">{isTableOptionsExpanded ? '▾' : '▸'}</span>
+                  </button>
+                  {isTableOptionsExpanded && (
+                    <div id="table-options-content" className={styles.collapsibleContent}>
+                      <label className={styles.contextField}>
+                        <span>Manual Attributes (comma-separated schema names)</span>
+                        <input
+                          type="text"
+                          value={manualAttributeNamesInput}
+                          onChange={handleManualAttributesInputChange}
+                          disabled={documentationSettings.metadata.attributeSelectionMode !== 'manually-selected'}
+                          placeholder="new_name, new_status"
+                          aria-label="Manual attribute schema names"
+                        />
+                      </label>
+
+                      <div className={styles.scopeGrid}>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.metadata.includeDefaultColumns}
+                            onChange={() => handleMetadataToggle('includeDefaultColumns')}
+                          />
+                          <span>Include Default Columns</span>
+                        </label>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.metadata.excludeVirtualAttributes}
+                            onChange={() => handleMetadataToggle('excludeVirtualAttributes')}
+                          />
+                          <span>Exclude Virtual Attributes</span>
+                        </label>
+                      </div>
+
+                      {/* ── Column Metadata ─────────────────────────────── */}
+                      <div className={styles.collapsiblePanel}>
+                        <button
+                          type="button"
+                          className={styles.collapsibleToggle}
+                          onClick={() => setIsColumnMetadataExpanded((prev) => !prev)}
+                          aria-expanded={isColumnMetadataExpanded}
+                          aria-controls="column-metadata-content"
+                        >
+                          <span>Column Metadata</span>
+                          <span aria-hidden="true">{isColumnMetadataExpanded ? '▾' : '▸'}</span>
+                        </button>
+                        {isColumnMetadataExpanded && (
+                          <div id="column-metadata-content" className={styles.collapsibleContent}>
+                            <div className={styles.scopeGrid}>
+                              <label className={styles.scopeItem}>
+                                <input
+                                  type="checkbox"
+                                  checked={documentationSettings.metadata.includeTypeColumn}
+                                  onChange={() => handleMetadataToggle('includeTypeColumn')}
+                                />
+                                <span>Type</span>
+                              </label>
+                              <label className={styles.scopeItem}>
+                                <input
+                                  type="checkbox"
+                                  checked={documentationSettings.metadata.includeRequiredLevelInfo}
+                                  onChange={() => handleMetadataToggle('includeRequiredLevelInfo')}
+                                />
+                                <span>Required</span>
+                              </label>
+                              <label className={styles.scopeItem}>
+                                <input
+                                  type="checkbox"
+                                  checked={documentationSettings.metadata.includeCustomColumn}
+                                  onChange={() => handleMetadataToggle('includeCustomColumn')}
+                                />
+                                <span>Custom</span>
+                              </label>
+                              <label className={styles.scopeItem}>
+                                <input
+                                  type="checkbox"
+                                  checked={documentationSettings.metadata.includeAuditInfo}
+                                  onChange={() => handleMetadataToggle('includeAuditInfo')}
+                                />
+                                <span>Audited</span>
+                              </label>
+                              <label className={styles.scopeItem}>
+                                <input
+                                  type="checkbox"
+                                  checked={documentationSettings.metadata.includeFieldSecurityFlags}
+                                  onChange={() => handleMetadataToggle('includeFieldSecurityFlags')}
+                                />
+                                <span>Field Security</span>
+                              </label>
+                              <label className={styles.scopeItem}>
+                                <input
+                                  type="checkbox"
+                                  checked={documentationSettings.metadata.includeValidForAdvancedFindInfo}
+                                  onChange={() => handleMetadataToggle('includeValidForAdvancedFindInfo')}
+                                />
+                                <span>Advanced Find</span>
+                              </label>
+                              <label className={styles.scopeItem}>
+                                <input
+                                  type="checkbox"
+                                  checked={documentationSettings.metadata.includeMetadataDiagnosticInfo}
+                                  onChange={() => handleMetadataToggle('includeMetadataDiagnosticInfo')}
+                                />
+                                <span>Metadata Source</span>
+                              </label>
+                              <label className={styles.scopeItem}>
+                                <input
+                                  type="checkbox"
+                                  checked={documentationSettings.metadata.includeNotesColumn}
+                                  onChange={() => handleMetadataToggle('includeNotesColumn')}
+                                />
+                                <span>Notes</span>
+                              </label>
+                              <label className={styles.scopeItem}>
+                                <input
+                                  type="checkbox"
+                                  checked={documentationSettings.metadata.includeDescriptionColumn}
+                                  onChange={() => handleMetadataToggle('includeDescriptionColumn')}
+                                />
+                                <span>Description</span>
+                              </label>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Security Role Options ─────────────────────────────── */}
+                <div className={styles.collapsiblePanel}>
+                  <button
+                    type="button"
+                    className={styles.collapsibleToggle}
+                    onClick={() => setIsSecurityRoleExpanded((prev) => !prev)}
+                    aria-expanded={isSecurityRoleExpanded}
+                    aria-controls="security-role-options-content"
+                  >
+                    <span>Security Role Options</span>
+                    <span aria-hidden="true">{isSecurityRoleExpanded ? '▾' : '▸'}</span>
+                  </button>
+                  {isSecurityRoleExpanded && (
+                    <div id="security-role-options-content" className={styles.collapsibleContent}>
+                      <div className={styles.scopeGrid}>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.securityRoleFilters.onlyTablesInCurrentSolution}
+                            onChange={() => handleSecurityRoleFilterToggle('onlyTablesInCurrentSolution')}
+                          />
+                          <span>Only Include Tables in Current Solution</span>
+                        </label>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.securityRoleFilters.onlyCustomTables}
+                            onChange={() => handleSecurityRoleFilterToggle('onlyCustomTables')}
+                          />
+                          <span>Only Include Custom Tables in Security Roles</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Diagram Options ───────────────────────────────────── */}
+                <div className={styles.collapsiblePanel}>
+                  <button
+                    type="button"
+                    className={styles.collapsibleToggle}
+                    onClick={() => setIsDiagramOptionsExpanded((prev) => !prev)}
+                    aria-expanded={isDiagramOptionsExpanded}
+                    aria-controls="diagram-options-content"
+                  >
+                    <span>Diagram Options</span>
+                    <span aria-hidden="true">{isDiagramOptionsExpanded ? '▾' : '▸'}</span>
+                  </button>
+                  {isDiagramOptionsExpanded && (
+                    <div id="diagram-options-content" className={styles.collapsibleContent}>
+                      <div className={styles.scopeGrid}>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.separateDiagramsDocument}
+                            onChange={handleSeparateDiagramsDocumentToggle}
+                          />
+                          <span>Generate Companion Diagrams Document</span>
+                        </label>
+                      </div>
+
+                      <div className={styles.palettePanel}>
+                        <button
+                          type="button"
+                          className={styles.paletteToggle}
+                          onClick={() => setIsMermaidPaletteExpanded((prev) => !prev)}
+                          aria-expanded={isMermaidPaletteExpanded}
+                        >
+                          <span>Mermaid Diagram Colors</span>
+                          <span>{isMermaidPaletteExpanded ? '▾' : '▸'}</span>
+                        </button>
+
+                        {isMermaidPaletteExpanded && (
+                          <div className={styles.paletteGrid}>
+                            {([
+                              ['sourceOne', 'Primary / Source 1'],
+                              ['sourceTwo', 'Secondary / Source 2'],
+                              ['sourceThree', 'Tertiary / Source 3'],
+                              ['sourceFour', 'Accent / Source 4'],
+                            ] as Array<[keyof MermaidPaletteSettings, string]>).map(([key, label]) => (
+                              <label key={key} className={styles.paletteField}>
+                                <span>{label}</span>
+                                <div className={styles.paletteInputRow}>
+                                  <input
+                                    type="color"
+                                    value={documentationSettings.mermaidPalette[key]}
+                                    onChange={(event) => handleMermaidPaletteColorChange(key, event.target.value)}
+                                    aria-label={`${label} color`}
+                                  />
+                                  <span>{documentationSettings.mermaidPalette[key]}</span>
+                                </div>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
