@@ -2,6 +2,28 @@
 
 ---
 
+## Version 1.1.24
+
+This release fixes accessibility issues with the new collapsible sections and adds missing column type mappings for Choice fields.
+
+### Highlights
+
+- **Accessibility**: Updated the hover contrast color on the new UI collapsible section headers to ensure they pass WCAG 2.2 AA contrast checks on both light and dark themes.
+- **Reporting**: Fixed a bug where Dataverse `Choice` and `Choices` columns were mislabeled as "Unknown" by mapping them correctly to OptionSet classifications.
+
+---
+
+## Version 1.1.23
+
+This release introduces UI improvements by adding collapsible sections and fine-grained column metadata configuration.
+
+### Highlights
+
+- Restructured the opening settings screen with discrete, collapsible containers for Document Header Details, Document Options, Table Options, Security Role Options, and Diagram Options.
+- Added a new Column Metadata options section (under Table Options) to select exactly which attribute metadata fields should render in the table documentation.
+
+---
+
 ## Version 1.1.22
 
 This release adds configurable Mermaid styling for the generated diagrams, including a stronger, more diagrammatic palette and source-based line colors that make it easier to follow connections from individual items.
