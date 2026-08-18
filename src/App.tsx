@@ -516,7 +516,7 @@ export default function App() {
   const [isMermaidPaletteExpanded, setIsMermaidPaletteExpanded] = useState<boolean>(false);
   /** Collapsible section open/closed state */
   const [isDocHeaderExpanded,       setIsDocHeaderExpanded]       = useState<boolean>(true);
-  const [isDocOptionsExpanded,      setIsDocOptionsExpanded]      = useState<boolean>(false);
+  const [isDocOptionsExpanded,      setIsDocOptionsExpanded]      = useState<boolean>(true);
   const [isTableOptionsExpanded,    setIsTableOptionsExpanded]    = useState<boolean>(false);
   const [isSecurityRoleExpanded,    setIsSecurityRoleExpanded]    = useState<boolean>(false);
   const [isDiagramOptionsExpanded,  setIsDiagramOptionsExpanded]  = useState<boolean>(false);
