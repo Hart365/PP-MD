@@ -17,6 +17,14 @@ vi.mock('../components/ui/UpdateChecker', () => ({
   UpdateChecker: () => null,
 }));
 
+/** Expand a collapsible section by its heading text. */
+async function expandSection(heading: RegExp) {
+  const btn = await screen.findByRole('button', { name: heading });
+  if (btn.getAttribute('aria-expanded') === 'false') {
+    fireEvent.click(btn);
+  }
+}
+
 describe('settings controls and migration', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -44,6 +52,9 @@ describe('settings controls and migration', () => {
     const configSelect = await screen.findByLabelText(/select document configuration/i);
     fireEvent.change(configSelect, { target: { value: 'legacy-1' } });
 
+    await expandSection(/document options/i);
+    await expandSection(/table options/i);
+
     await waitFor(() => {
       expect((screen.getByLabelText(/select attribute selection mode/i) as HTMLSelectElement).value).toBe('all');
       expect((screen.getByLabelText(/include default columns/i) as HTMLInputElement).checked).toBe(true);
@@ -52,6 +63,8 @@ describe('settings controls and migration', () => {
 
   it('applies validation rule for unsupported summary-mode combinations', async () => {
     render(<App />);
+
+    await expandSection(/document options/i);
 
     const detailSelect = await screen.findByLabelText(/select documentation detail level/i);
     const attributeModeSelect = screen.getByLabelText(/select attribute selection mode/i);
@@ -68,13 +81,23 @@ describe('settings controls and migration', () => {
   it('persists metadata settings when saving a configuration', async () => {
     render(<App />);
 
-    fireEvent.click(await screen.findByLabelText(/include audit info/i));
+    await expandSection(/table options/i);
+    await expandSection(/column metadata/i);
+    fireEvent.click(await screen.findByLabelText(/^audited$/i));
+
+    await expandSection(/security role options/i);
     fireEvent.click(screen.getByLabelText(/only include tables in current solution/i));
     fireEvent.click(screen.getByLabelText(/only include custom tables in security roles/i));
+
+    await expandSection(/diagram options/i);
     fireEvent.click(screen.getByLabelText(/generate companion diagrams document/i));
+
+    await expandSection(/document options/i);
     fireEvent.change(screen.getByLabelText(/select attribute selection mode/i), {
       target: { value: 'manually-selected' },
     });
+
+    await expandSection(/table options/i);
     fireEvent.change(screen.getByLabelText(/manual attribute schema names/i), {
       target: { value: 'new_name, new_status' },
     });
