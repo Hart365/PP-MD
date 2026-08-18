@@ -1,6 +1,6 @@
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import rcedit from 'rcedit';
+import * as rcedit from 'rcedit';
 
 function toWindowsVersion(version) {
   const core = (version ?? '0.0.0').split('-')[0].split('+')[0];

@@ -186,6 +186,8 @@ export interface OptionSetDefinition extends NamedItem {
 export interface EntityAttribute extends NamedItem {
   /** Data type of the column */
   type: AttributeType;
+  /** Raw unmapped type string for debugging or fallback */
+  rawType?: string;
   /** Whether the column is required */
   required: boolean;
   /** Original required-level label from metadata (e.g. None, Recommended, ApplicationRequired) */

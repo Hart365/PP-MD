@@ -130,7 +130,7 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
       if (lang !== 'mermaid') {
         return <code className={className} {...props}>{children}</code>;
       }
-      const src = String(children).replace(/\n$/, '');
+      const rawSrc = String(children).replace(/\n$/, ""); const src = rawSrc.replace(/([^\n])(linkStyle \d+)/g, "$1\n$2").replace(/(linkStyle \d+ stroke:[^\n]+)(linkStyle)/g, "$1\n$2");
       const cap = src.match(/%%\s*(.+?)\s*%%/)?.[1] ?? 'Diagram';
       return (
         <MermaidDiagram

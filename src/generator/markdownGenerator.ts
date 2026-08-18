@@ -1675,7 +1675,12 @@ function generateEntitiesSection(
         ];
 
         if (includeTypeColumn) {
-          rowCells.push(attr.type);
+            let displayType = attr.type as string;
+            if (displayType === AttributeType.OptionSet) displayType = 'Choice';
+            if (displayType === AttributeType.MultiSelectOptionSet) displayType = 'Choices';
+            if (displayType === AttributeType.UniqueIdentifier) displayType = 'Primary Key (GUID)';
+            if (displayType === AttributeType.Unknown) displayType = attr.rawType ? `Unknown (${attr.rawType})` : 'Unknown';
+            rowCells.push(displayType);
         }
 
         if (includeRequiredInfo) {
