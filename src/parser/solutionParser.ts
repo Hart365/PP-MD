@@ -1079,11 +1079,13 @@ function mapAttributeType(xmlType: string): AttributeType {
     owner:              AttributeType.Owner,
     optionset:          AttributeType.OptionSet,
     picklist:           AttributeType.OptionSet,
+    choice:             AttributeType.OptionSet,
     state:              AttributeType.OptionSet,
     status:             AttributeType.OptionSet,
     statusreason:       AttributeType.OptionSet,
     multiselectoptionset: AttributeType.MultiSelectOptionSet,
     multiselectpicklist:  AttributeType.MultiSelectOptionSet,
+    choices:            AttributeType.MultiSelectOptionSet,
     uniqueidentifier:   AttributeType.UniqueIdentifier,
     guid:               AttributeType.UniqueIdentifier,
     image:              AttributeType.Image,
@@ -1098,6 +1100,8 @@ function mapAttributeType(xmlType: string): AttributeType {
   if (t.includes('owner')) return AttributeType.Owner;
   if (t.includes('customer')) return AttributeType.Customer;
   if (t.includes('partylist')) return AttributeType.PartyList;
+  if (t.includes('multiselectpicklist') || t.includes('multiselectoptionset') || t.includes('choices')) return AttributeType.MultiSelectOptionSet;
+  if (t.includes('choice') || t.includes('picklist') || t.includes('optionset')) return AttributeType.OptionSet;
 
   return map[t] ?? AttributeType.Unknown;
 }

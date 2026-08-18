@@ -806,4 +806,67 @@ describe('parseSolutionZip regressions', () => {
     expect(lookupAttr?.lookupTarget).toBe('acoe_lorapplication');
     expect(lookupAttr?.isCustom).toBe(true);
   });
+
+  it('parses Choice and Choices (multi-select) attribute types from ChoiceType / MultiSelectPicklistType display name strings', async () => {
+    const zip = new JSZip();
+    zip.file(
+      'solution.xml',
+      `<?xml version="1.0" encoding="utf-8"?>
+<ImportExportXml>
+  <SolutionManifest>
+    <UniqueName>acoe_attr_choice</UniqueName>
+    <Version>1.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher>
+      <UniqueName>acoe</UniqueName>
+      <FriendlyName>ACOE</FriendlyName>
+      <CustomizationPrefix>acoe</CustomizationPrefix>
+    </Publisher>
+  </SolutionManifest>
+</ImportExportXml>`,
+    );
+
+    zip.file(
+      'customizations.xml',
+      `<?xml version="1.0" encoding="utf-8"?>
+<ImportExportXml>
+  <Entities>
+    <Entity>
+      <Name LocalizedName="Case">incident</Name>
+      <EntityInfo>
+        <entity Name="incident" DisplayName="Case">
+          <attributes>
+            <attribute Name="acoe_singlechoice">
+              <AttributeTypeDisplayName>
+                <Value>ChoiceType</Value>
+              </AttributeTypeDisplayName>
+            </attribute>
+            <attribute Name="acoe_plainchoisetype" Type="Choice">
+            </attribute>
+            <attribute Name="acoe_multichoice">
+              <AttributeTypeDisplayName>
+                <Value>MultiSelectPicklistType</Value>
+              </AttributeTypeDisplayName>
+            </attribute>
+            <attribute Name="acoe_plainmultichoices" Type="Choices">
+            </attribute>
+          </attributes>
+        </entity>
+      </EntityInfo>
+      <EntityRelationships />
+    </Entity>
+  </Entities>
+</ImportExportXml>`,
+    );
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const parsed = await parseSolutionZip(blob);
+    const entity = parsed.entities.find((item) => item.logicalName === 'incident');
+
+    expect(entity).toBeTruthy();
+    expect(entity?.attributes.find((a) => a.name === 'acoe_singlechoice')?.type).toBe(AttributeType.OptionSet);
+    expect(entity?.attributes.find((a) => a.name === 'acoe_plainchoisetype')?.type).toBe(AttributeType.OptionSet);
+    expect(entity?.attributes.find((a) => a.name === 'acoe_multichoice')?.type).toBe(AttributeType.MultiSelectOptionSet);
+    expect(entity?.attributes.find((a) => a.name === 'acoe_plainmultichoices')?.type).toBe(AttributeType.MultiSelectOptionSet);
+  });
 });
