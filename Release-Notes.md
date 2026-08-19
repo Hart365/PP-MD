@@ -2,6 +2,20 @@
 
 ---
 
+## Version 1.2.2
+
+This release fixes the documentation viewer toolbar anchoring, tightens search behavior and contrast, and restores the missing app/window icon in packaged builds.
+
+### Highlights
+
+- **Toolbar anchoring fix**: Fixed the root cause of the toolbar (and document title) scrolling off screen — the viewer panel had no bounded height, so its internal scroll region never took effect. The toolbar now stays fixed in place while only the document content scrolls beneath it.
+- **Back to top**: Added a **⬆️ Top** button that appears once you've scrolled down, returning you to the top of the document.
+- **Search refinement**: Search now requires at least 3 characters before it starts matching, showing a "Type 3+ characters" hint for shorter queries.
+- **Search contrast fix**: Replaced the translucent orange/black active-match highlight (which failed WCAG 2.2 AA contrast) with opaque, verified-contrast colors (≥ 4.5:1) for both the general match and current-match highlights.
+- **App/window icon fix**: `build/icon.ico` is now bundled into the packaged app so the Electron window icon resolves correctly at runtime, in addition to the executable icon.
+
+---
+
 ## Version 1.2.1
 
 This release refines the documentation viewer toolbar: export actions are now merged into a single dropdown, and an in-document search capability has been added.

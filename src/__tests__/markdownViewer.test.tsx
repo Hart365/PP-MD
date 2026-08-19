@@ -96,4 +96,29 @@ describe('MarkdownViewer', () => {
     fireEvent.click(screen.getByRole('button', { name: /close search/i }));
     expect(screen.queryByPlaceholderText(/search document/i)).not.toBeInTheDocument();
   });
+
+  it('requires at least 3 characters before reporting search matches', () => {
+    render(<MarkdownViewer markdown="# Title\n\nSome searchable content." title="Document" />);
+
+    fireEvent.click(screen.getByRole('button', { name: /^search document$/i }));
+    const input = screen.getByPlaceholderText(/search document/i);
+
+    fireEvent.change(input, { target: { value: 'so' } });
+    expect(screen.getByText(/type 3\+ characters/i)).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: 'som' } });
+    expect(screen.queryByText(/type 3\+ characters/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a back-to-top button only after scrolling down', () => {
+    render(<MarkdownViewer markdown="# Title\n\nSome content." title="Document" />);
+
+    expect(screen.queryByRole('button', { name: /back to top/i })).not.toBeInTheDocument();
+
+    const content = document.querySelector('.markdown-body') as HTMLElement;
+    Object.defineProperty(content, 'scrollTop', { value: 500, writable: true });
+    fireEvent.scroll(content);
+
+    expect(screen.getByRole('button', { name: /back to top/i })).toBeInTheDocument();
+  });
 });

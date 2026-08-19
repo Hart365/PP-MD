@@ -5,7 +5,7 @@
  * tables, and copy/export actions.
  */
 
-import { useState, useCallback, useEffect, useRef, useMemo, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo, type ChangeEvent, type MouseEvent, type ReactNode, type UIEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -21,6 +21,9 @@ export interface MarkdownViewerProps {
   onExport?: () => void;
   onStatusMessage?: (message: string) => void;
 }
+
+const MIN_SEARCH_QUERY_LENGTH = 3;
+const BACK_TO_TOP_SCROLL_THRESHOLD = 400;
 
 /**
  * Extract text from nested React nodes.
@@ -58,11 +61,13 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMatchCount, setSearchMatchCount] = useState(0);
   const [currentSearchIndex, setCurrentSearchIndex] = useState(-1);
+  const [isScrolledDown, setIsScrolledDown] = useState(false);
   const [mermaidProgressState, setMermaidProgressState] = useState<{
     docKey: string;
     renderedIds: Set<string>;
   }>({ docKey: '', renderedIds: new Set() });
   const contentRef = useRef<HTMLDivElement>(null);
+  const rawSourceRef = useRef<HTMLPreElement>(null);
   const exportButtonRef = useRef<HTMLButtonElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -222,6 +227,22 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
     }
   }, [scrollToHeading]);
 
+  const handleScrollableScroll = useCallback((event: UIEvent<HTMLElement>) => {
+    setIsScrolledDown(event.currentTarget.scrollTop > BACK_TO_TOP_SCROLL_THRESHOLD);
+  }, []);
+
+  const handleBackToTop = useCallback(() => {
+    const scrollable = showRaw ? rawSourceRef.current : contentRef.current;
+    scrollable?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [showRaw]);
+
+  // Reset scroll-position tracking when switching documents or view modes,
+  // since the new content starts scrolled to the top.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsScrolledDown(false);
+  }, [markdown, showRaw]);
+
   const closeExportMenu = useCallback(() => {
     setIsExportMenuOpen(false);
   }, []);
@@ -335,7 +356,7 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
     if (!supportsHighlightApi) return;
     const highlights = CSS.highlights;
 
-    if (!isSearchOpen || showRaw || !contentRef.current || !searchQuery.trim()) {
+    if (!isSearchOpen || showRaw || !contentRef.current || searchQuery.trim().length < MIN_SEARCH_QUERY_LENGTH) {
       clearSearchHighlights();
       return;
     }
@@ -538,6 +559,17 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
               ⬇️ Export ▾
             </button>
           </div>
+          {isScrolledDown && (
+            <button
+              type="button"
+              className={styles.toolbarBtn}
+              onClick={handleBackToTop}
+              aria-label="Back to top of document"
+              title="Back to top of document"
+            >
+              ⬆️ Top
+            </button>
+          )}
         </div>
       </div>
       {isExportMenuOpen && (
@@ -593,7 +625,7 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
             className={styles.searchInput}
             value={searchQuery}
             onChange={handleSearchQueryChange}
-            placeholder="Search document…"
+            placeholder="Search document (3+ characters)…"
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault();
@@ -604,11 +636,13 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
             }}
           />
           <span className={styles.searchMatchCount} aria-live="polite">
-            {searchQuery.trim()
-              ? searchMatchCount > 0
-                ? `${currentSearchIndex + 1} of ${searchMatchCount}`
-                : 'No matches'
-              : ''}
+            {searchQuery.trim().length === 0
+              ? ''
+              : searchQuery.trim().length < MIN_SEARCH_QUERY_LENGTH
+                ? `Type ${MIN_SEARCH_QUERY_LENGTH}+ characters`
+                : searchMatchCount > 0
+                  ? `${currentSearchIndex + 1} of ${searchMatchCount}`
+                  : 'No matches'}
           </span>
           <button
             type="button"
@@ -644,7 +678,12 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
         </div>
       )}
       {showRaw ? (
-        <pre className={styles.rawSource} aria-label="Raw Markdown source">
+        <pre
+          ref={rawSourceRef}
+          className={styles.rawSource}
+          aria-label="Raw Markdown source"
+          onScroll={handleScrollableScroll}
+        >
           <code>{markdown}</code>
         </pre>
       ) : (
@@ -652,6 +691,7 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
           ref={contentRef}
           className={`${styles.content} markdown-body`}
           onClickCapture={handleContentClickCapture}
+          onScroll={handleScrollableScroll}
         >
           {renderedMarkdown}
         </div>

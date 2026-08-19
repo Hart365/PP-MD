@@ -122,7 +122,7 @@ You can also load previously generated documents directly using **Open .md** in 
 
 When a document contains Mermaid content, the viewer toolbar shows live diagram render progress as **Diagrams X/Y rendered**.
 
-Use **🔍 Search** in the viewer toolbar to find text within the rendered document — matches are highlighted, with next/previous navigation and a match counter.
+Use **🔍 Search** in the viewer toolbar to find text within the rendered document (type at least 3 characters) — matches are highlighted, with next/previous navigation and a match counter.
 
 ### 4. Export
 
