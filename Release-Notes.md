@@ -12,6 +12,7 @@ This release expands Document Options with new toggles for previously always-on 
 - **Table Options**: Removed the "Manual Attributes" text field and the "Manually Selected" attribute selection mode, simplifying the attribute filtering options.
 - **Maintenance**: Updated all dependencies to their latest compatible versions and removed the unused, vulnerable `xlsx` dependency, resolving all `npm audit` findings (0 vulnerabilities).
 - **CI**: Hardened the CI workflow's `GITHUB_TOKEN` permissions to read-only, resolving a CodeQL code scanning alert.
+- **Security**: Replaced regex-based HTML sanitization in the PDF export path with DOMPurify, and fixed unsafe HTML-entity decoding order in the PDF and Excel export utilities, resolving five CodeQL alerts (bad HTML tag filtering, incomplete sanitization, and double-escaping).
 
 ---
 

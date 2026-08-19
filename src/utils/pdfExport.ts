@@ -4,6 +4,8 @@
  * to a tagged PDF through Electron IPC.
  */
 
+import DOMPurify from 'dompurify';
+
 export interface PdfExportRequest {
   title: string;
   fileName: string;
@@ -26,15 +28,6 @@ const DIAGRAM_SLICE_OVERLAP_UNITS = 120;
 const MAX_DIAGRAM_SLICES = 24;
 const MIN_DIAGRAM_SLICE_HEIGHT_UNITS = 520;
 
-const HTML_SANITIZE_PATTERNS: ReadonlyArray<RegExp> = [
-  /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
-  /<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi,
-  /<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi,
-  /<embed\b[^>]*>/gi,
-  /\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
-  /\s(?:href|src)\s*=\s*(['"])\s*javascript:[^'"]*\1/gi,
-];
-
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -44,17 +37,27 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+const HTML_ENTITY_DECODE_MAP: Readonly<Record<string, string>> = {
+  '&nbsp;': ' ',
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  "&#39;": "'",
+};
+const HTML_ENTITY_PATTERN = /&(?:nbsp|amp|lt|gt|quot|#39);/gi;
+
+/** Decodes known HTML entities in a single pass to avoid double-unescaping. */
+function decodeHtmlEntities(value: string): string {
+  return value.replace(HTML_ENTITY_PATTERN, (match) => HTML_ENTITY_DECODE_MAP[match.toLowerCase()] ?? match);
+}
+
 function stripHtmlTags(value: string): string {
-  return value
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/gi, '"')
-    .trim();
+  return decodeHtmlEntities(
+    value
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, ''),
+  ).trim();
 }
 
 function estimateTextWidthPx(value: string): number {
@@ -435,7 +438,12 @@ export function optimizeRenderedHtmlForPdf(bodyHtml: string): string {
 }
 
 export function sanitizeHtmlForPdfExport(html: string): string {
-  return HTML_SANITIZE_PATTERNS.reduce((acc, pattern) => acc.replace(pattern, ''), html);
+  // Uses DOMPurify (a vetted DOM-based sanitizer) instead of hand-rolled
+  // regular expressions, which cannot reliably parse arbitrary HTML.
+  return DOMPurify.sanitize(html, {
+    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'style'],
+    FORBID_ATTR: ['srcdoc'],
+  });
 }
 
 export function toPdfFileName(fileName: string): string {

@@ -57,16 +57,27 @@ function stripMarkdownDecorators(value: string): string {
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1');
 }
 
+const HTML_ENTITY_DECODE_MAP: Readonly<Record<string, string>> = {
+  '&nbsp;': ' ',
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  "&#39;": "'",
+};
+const HTML_ENTITY_PATTERN = /&(?:nbsp|amp|lt|gt|quot|#39);/gi;
+
+/** Decodes known HTML entities in a single pass to avoid double-unescaping. */
+function decodeHtmlEntities(value: string): string {
+  return value.replace(HTML_ENTITY_PATTERN, (match) => HTML_ENTITY_DECODE_MAP[match.toLowerCase()] ?? match);
+}
+
 function stripHtml(value: string): string {
-  return value
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/gi, '"');
+  return decodeHtmlEntities(
+    value
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, ''),
+  );
 }
 
 function normalizeTableCell(cell: string): string {
