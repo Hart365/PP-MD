@@ -94,13 +94,9 @@ describe('settings controls and migration', () => {
 
     await expandSection(/document options/i);
     fireEvent.change(screen.getByLabelText(/select attribute selection mode/i), {
-      target: { value: 'manually-selected' },
+      target: { value: 'custom-only' },
     });
 
-    await expandSection(/table options/i);
-    fireEvent.change(screen.getByLabelText(/manual attribute schema names/i), {
-      target: { value: 'new_name, new_status' },
-    });
     fireEvent.change(screen.getByLabelText(/configuration name/i), {
       target: { value: 'Phase2 Persisted' },
     });
@@ -111,8 +107,7 @@ describe('settings controls and migration', () => {
       expect(saved.length).toBe(1);
       expect(saved[0].schemaVersion).toBe(3);
       expect((saved[0].documentationSettings as { metadata?: { includeAuditInfo?: boolean } }).metadata?.includeAuditInfo).toBe(false);
-      expect((saved[0].documentationSettings as { metadata?: { attributeSelectionMode?: string } }).metadata?.attributeSelectionMode).toBe('manually-selected');
-      expect((saved[0].documentationSettings as { metadata?: { manuallySelectedAttributes?: string[] } }).metadata?.manuallySelectedAttributes).toEqual(['new_name', 'new_status']);
+      expect((saved[0].documentationSettings as { metadata?: { attributeSelectionMode?: string } }).metadata?.attributeSelectionMode).toBe('custom-only');
       expect((saved[0].documentationSettings as { securityRoleFilters?: { onlyTablesInCurrentSolution?: boolean; onlyCustomTables?: boolean } }).securityRoleFilters?.onlyTablesInCurrentSolution).toBe(true);
       expect((saved[0].documentationSettings as { securityRoleFilters?: { onlyTablesInCurrentSolution?: boolean; onlyCustomTables?: boolean } }).securityRoleFilters?.onlyCustomTables).toBe(true);
       expect((saved[0].documentationSettings as { separateDiagramsDocument?: boolean }).separateDiagramsDocument).toBe(true);

@@ -2,7 +2,7 @@ import {
   buildWorkbookFromMarkdownTables,
   extractMarkdownTables,
 } from '../utils/tableExport';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 
 describe('table export', () => {
   const markdown = [

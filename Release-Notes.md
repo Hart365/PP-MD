@@ -2,6 +2,19 @@
 
 ---
 
+## Version 1.2.0
+
+This release expands Document Options with new toggles for previously always-on sections, removes the Manual Attributes selection mode, and updates all dependencies to their latest secure versions.
+
+### Highlights
+
+- **Document Options**: Added dedicated toggles for Web Resources, Desktop Flows & Dataflows, Custom APIs & Offline Profiles, and Copilot Studio Agents & AI Models, so every documented item type can be explicitly included or excluded.
+- **Table Options**: Removed the "Manual Attributes" text field and the "Manually Selected" attribute selection mode, simplifying the attribute filtering options.
+- **Maintenance**: Updated all dependencies to their latest compatible versions and removed the unused, vulnerable `xlsx` dependency, resolving all `npm audit` findings (0 vulnerabilities).
+- **CI**: Hardened the CI workflow's `GITHUB_TOKEN` permissions to read-only, resolving a CodeQL code scanning alert.
+
+---
+
 ## Version 1.1.24
 
 This release fixes accessibility issues with the new collapsible sections and adds missing column type mappings for Choice fields.

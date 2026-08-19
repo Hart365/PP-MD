@@ -42,6 +42,7 @@ PP-MD parses you solution zip files and generates documentation that covers:
 - **Reports**, **dashboards**, **web resources**, and **email templates**
 - Optional document metadata header (client, project, contract, sprint, release date)
 - Column filtering controls, including **Include/Exclude Default Columns** (system columns), while always retaining relationship key columns in relationship documentation and ERD relationship context
+- Document Options toggles to include/exclude Flows & Automation, Apps, Security, Integration, Plugins, Reports & Dashboards, Web Resources, Desktop Flows & Dataflows, Custom APIs & Offline Profiles, and Copilot Studio Agents & AI Models
 
 Multiple solutions can be loaded at once and reviewed across all loaded solutions.
 

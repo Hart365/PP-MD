@@ -108,15 +108,9 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
       'attributes-on-form',
       'attributes-not-on-form',
       'option-set-focused',
-      'manually-selected',
       'unmanaged-only',
     ].includes(mode ?? '');
   };
-
-  const normalizedManualAttributes = (settings?.metadata?.manuallySelectedAttributes ?? [])
-    .filter((entry): entry is string => typeof entry === 'string')
-    .map((entry) => entry.trim().toLowerCase())
-    .filter((entry, index, all) => entry.length > 0 && all.indexOf(entry) === index);
 
   const palette = settings?.mermaidPalette;
 
@@ -129,6 +123,10 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
       integration: settings?.scope?.integration ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.integration,
       plugins: settings?.scope?.plugins ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.plugins,
       reports: settings?.scope?.reports ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.reports,
+      webResources: settings?.scope?.webResources ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.webResources,
+      desktopFlows: settings?.scope?.desktopFlows ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.desktopFlows,
+      customApis: settings?.scope?.customApis ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.customApis,
+      copilotAgents: settings?.scope?.copilotAgents ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.copilotAgents,
     },
     metadata: {
       includeDefaultColumns:
@@ -148,7 +146,6 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
         isValidSelectionMode(settings?.metadata?.attributeSelectionMode)
           ? settings.metadata.attributeSelectionMode
           : APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.attributeSelectionMode,
-      manuallySelectedAttributes: normalizedManualAttributes,
       includeTypeColumn:
         settings?.metadata?.includeTypeColumn ?? APP_DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeTypeColumn,
       includeCustomColumn:
@@ -175,17 +172,6 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
   };
 }
 
-function parseManualAttributes(raw: string): string[] {
-  return raw
-    .split(',')
-    .map((part) => part.trim().toLowerCase())
-    .filter((part, index, all) => part.length > 0 && all.indexOf(part) === index);
-}
-
-function serializeManualAttributes(values: string[]): string {
-  return values.join(', ');
-}
-
 function validateDocumentationSettings(settings: DocumentationSettings): { normalized: DocumentationSettings; issues: string[] } {
   const normalized = normalizeDocumentationSettings(settings);
   const issues: string[] = [];
@@ -198,11 +184,6 @@ function validateDocumentationSettings(settings: DocumentationSettings): { norma
   if (normalized.detailLevel === 'summary' && normalized.metadata.excludeVirtualAttributes) {
     normalized.metadata.excludeVirtualAttributes = false;
     issues.push('Exclude virtual attributes is only supported in Detailed mode and was turned off.');
-  }
-
-  if (normalized.metadata.attributeSelectionMode === 'manually-selected'
-    && normalized.metadata.manuallySelectedAttributes.length === 0) {
-    issues.push('Manual attribute selection is enabled but no attribute names are defined.');
   }
 
   return { normalized, issues };
@@ -508,8 +489,6 @@ export default function App() {
   const [configLoadError, setConfigLoadError] = useState<string>('');
   /** New configuration name for save action */
   const [newConfigName, setNewConfigName] = useState<string>('');
-  /** Raw CSV text for manual attribute selection mode */
-  const [manualAttributeNamesInput, setManualAttributeNamesInput] = useState<string>('');
   /** True when switching to a heavy markdown document so we can show feedback */
   const [isViewerLoading, setIsViewerLoading] = useState<boolean>(false);
   /** Whether the Mermaid palette section is expanded on the welcome screen */
@@ -579,7 +558,6 @@ export default function App() {
       releaseDate: nextDocumentContext.releaseDate,
     });
     setDocumentationSettings(nextDocumentationSettings);
-    setManualAttributeNamesInput(serializeManualAttributes(nextDocumentationSettings.metadata.manuallySelectedAttributes));
     setResults((prev) => rebuildResults(prev, erdMode, nextDocumentContext, nextDocumentationSettings));
     if (issues.length > 0) {
       setStatusMsg(issues.join(' '));
@@ -820,7 +798,6 @@ export default function App() {
     const { normalized, issues } = validateDocumentationSettings(nextSettings);
     setSelectedConfigId('custom');
     setDocumentationSettings(normalized);
-    setManualAttributeNamesInput(serializeManualAttributes(normalized.metadata.manuallySelectedAttributes));
     setResults((prev) => rebuildResults(prev, erdMode, documentContext, normalized));
     if (issues.length > 0) {
       setStatusMsg(issues.join(' '));
@@ -899,18 +876,6 @@ export default function App() {
       metadata: {
         ...documentationSettings.metadata,
         attributeSelectionMode: event.target.value as DocumentationSettings['metadata']['attributeSelectionMode'],
-      },
-    };
-    applyDocumentationSettings(nextSettings);
-  }, [applyDocumentationSettings, documentationSettings]);
-
-  const handleManualAttributesInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    setManualAttributeNamesInput(event.target.value);
-    const nextSettings: DocumentationSettings = {
-      ...documentationSettings,
-      metadata: {
-        ...documentationSettings.metadata,
-        manuallySelectedAttributes: parseManualAttributes(event.target.value),
       },
     };
     applyDocumentationSettings(nextSettings);
@@ -1274,7 +1239,6 @@ export default function App() {
                           <option value="attributes-on-form">Attributes On Form</option>
                           <option value="attributes-not-on-form">Attributes Not On Form</option>
                           <option value="option-set-focused">Option-Set Focused</option>
-                          <option value="manually-selected">Manually Selected</option>
                           <option value="unmanaged-only">Unmanaged Only</option>
                         </select>
                       </div>
@@ -1328,6 +1292,38 @@ export default function App() {
                           />
                           <span>Include Reports &amp; Dashboards</span>
                         </label>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.scope.webResources}
+                            onChange={() => handleScopeToggle('webResources')}
+                          />
+                          <span>Include Web Resources</span>
+                        </label>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.scope.desktopFlows}
+                            onChange={() => handleScopeToggle('desktopFlows')}
+                          />
+                          <span>Include Desktop Flows &amp; Dataflows</span>
+                        </label>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.scope.customApis}
+                            onChange={() => handleScopeToggle('customApis')}
+                          />
+                          <span>Include Custom APIs &amp; Offline Profiles</span>
+                        </label>
+                        <label className={styles.scopeItem}>
+                          <input
+                            type="checkbox"
+                            checked={documentationSettings.scope.copilotAgents}
+                            onChange={() => handleScopeToggle('copilotAgents')}
+                          />
+                          <span>Include Copilot Studio Agents &amp; AI Models</span>
+                        </label>
                       </div>
                     </div>
                   )}
@@ -1347,18 +1343,6 @@ export default function App() {
                   </button>
                   {isTableOptionsExpanded && (
                     <div id="table-options-content" className={styles.collapsibleContent}>
-                      <label className={styles.contextField}>
-                        <span>Manual Attributes (comma-separated schema names)</span>
-                        <input
-                          type="text"
-                          value={manualAttributeNamesInput}
-                          onChange={handleManualAttributesInputChange}
-                          disabled={documentationSettings.metadata.attributeSelectionMode !== 'manually-selected'}
-                          placeholder="new_name, new_status"
-                          aria-label="Manual attribute schema names"
-                        />
-                      </label>
-
                       <div className={styles.scopeGrid}>
                         <label className={styles.scopeItem}>
                           <input

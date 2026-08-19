@@ -63,6 +63,10 @@ export interface DocumentationScopeSettings {
   integration: boolean;
   plugins: boolean;
   reports: boolean;
+  webResources: boolean;
+  desktopFlows: boolean;
+  customApis: boolean;
+  copilotAgents: boolean;
 }
 
 export type AttributeSelectionMode =
@@ -71,7 +75,6 @@ export type AttributeSelectionMode =
   | 'attributes-on-form'
   | 'attributes-not-on-form'
   | 'option-set-focused'
-  | 'manually-selected'
   | 'unmanaged-only';
 
 export interface DocumentationMetadataSettings {
@@ -83,7 +86,6 @@ export interface DocumentationMetadataSettings {
   includeMetadataDiagnosticInfo: boolean;
   excludeVirtualAttributes: boolean;
   attributeSelectionMode: AttributeSelectionMode;
-  manuallySelectedAttributes: string[];
   /** Column Metadata visibility flags */
   includeTypeColumn: boolean;
   includeCustomColumn: boolean;
@@ -128,6 +130,10 @@ export const DEFAULT_DOCUMENTATION_SETTINGS: DocumentationSettings = {
     integration: true,
     plugins: true,
     reports: true,
+    webResources: true,
+    desktopFlows: true,
+    customApis: true,
+    copilotAgents: true,
   },
   metadata: {
     includeDefaultColumns: true,
@@ -138,7 +144,6 @@ export const DEFAULT_DOCUMENTATION_SETTINGS: DocumentationSettings = {
     includeMetadataDiagnosticInfo: false,
     excludeVirtualAttributes: false,
     attributeSelectionMode: 'all',
-    manuallySelectedAttributes: [],
     includeTypeColumn: true,
     includeCustomColumn: true,
     includeNotesColumn: true,
@@ -431,15 +436,9 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
       'attributes-on-form',
       'attributes-not-on-form',
       'option-set-focused',
-      'manually-selected',
       'unmanaged-only',
     ].includes(mode ?? '');
   };
-
-  const manualAttributes = (settings?.metadata?.manuallySelectedAttributes ?? [])
-    .filter((name): name is string => typeof name === 'string')
-    .map((name) => name.trim().toLowerCase())
-    .filter((name, idx, all) => name.length > 0 && all.indexOf(name) === idx);
 
   return {
     detailLevel: settings?.detailLevel === 'summary' ? 'summary' : 'detailed',
@@ -450,6 +449,10 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
       integration: settings?.scope?.integration ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.integration,
       plugins: settings?.scope?.plugins ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.plugins,
       reports: settings?.scope?.reports ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.reports,
+      webResources: settings?.scope?.webResources ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.webResources,
+      desktopFlows: settings?.scope?.desktopFlows ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.desktopFlows,
+      customApis: settings?.scope?.customApis ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.customApis,
+      copilotAgents: settings?.scope?.copilotAgents ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.copilotAgents,
     },
     metadata: {
       includeDefaultColumns: settings?.metadata?.includeDefaultColumns ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeDefaultColumns,
@@ -464,7 +467,6 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
       attributeSelectionMode: isValidSelectionMode(settings?.metadata?.attributeSelectionMode)
         ? settings.metadata.attributeSelectionMode
         : DEFAULT_DOCUMENTATION_SETTINGS.metadata.attributeSelectionMode,
-      manuallySelectedAttributes: manualAttributes,
       includeTypeColumn: settings?.metadata?.includeTypeColumn ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeTypeColumn,
       includeCustomColumn: settings?.metadata?.includeCustomColumn ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeCustomColumn,
       includeNotesColumn: settings?.metadata?.includeNotesColumn ?? DEFAULT_DOCUMENTATION_SETTINGS.metadata.includeNotesColumn,
@@ -1161,13 +1163,13 @@ function generateTableOfContents(solution: ParsedSolution, settings: Documentati
     { label: 'Forms & Views',                  count: includeDetailedSections ? solution.forms.length + solution.views.length : 0 },
     { label: 'Processes & Automation',         count: settings.scope.flows ? solution.processes.length : 0 },
     { label: 'Power Apps',                     count: settings.scope.apps ? documentedApps.length : 0 },
-    { label: 'Copilot Studio Agents',          count: includeDetailedSections ? solution.agents.length : 0 },
-    { label: 'AI Models',                      count: includeDetailedSections ? solution.aiModels.length : 0 },
-    { label: 'Desktop Flows',                  count: includeDetailedSections ? solution.desktopFlows.length : 0 },
-    { label: 'Dataflows',                      count: includeDetailedSections ? (solution.dataflows?.length ?? 0) : 0 },
-    { label: 'Custom APIs',                    count: includeDetailedSections ? (solution.customApis?.length ?? 0) : 0 },
-    { label: 'Offline Profiles',               count: includeDetailedSections ? (solution.offlineProfiles?.length ?? 0) : 0 },
-    { label: 'Web Resources',                  count: includeDetailedSections ? solution.webResources.length : 0 },
+    { label: 'Copilot Studio Agents',          count: includeDetailedSections && settings.scope.copilotAgents ? solution.agents.length : 0 },
+    { label: 'AI Models',                      count: includeDetailedSections && settings.scope.copilotAgents ? solution.aiModels.length : 0 },
+    { label: 'Desktop Flows',                  count: includeDetailedSections && settings.scope.desktopFlows ? solution.desktopFlows.length : 0 },
+    { label: 'Dataflows',                      count: includeDetailedSections && settings.scope.desktopFlows ? (solution.dataflows?.length ?? 0) : 0 },
+    { label: 'Custom APIs',                    count: includeDetailedSections && settings.scope.customApis ? (solution.customApis?.length ?? 0) : 0 },
+    { label: 'Offline Profiles',               count: includeDetailedSections && settings.scope.customApis ? (solution.offlineProfiles?.length ?? 0) : 0 },
+    { label: 'Web Resources',                  count: includeDetailedSections && settings.scope.webResources ? solution.webResources.length : 0 },
     { label: 'Security Roles',                 count: settings.scope.security ? securityRoleMatrices.length : 0 },
     { label: 'Column Level Security Profiles', count: settings.scope.security ? solution.fieldSecurityProfiles.length : 0 },
     { label: 'Connection References',          count: settings.scope.integration ? solution.connectionReferences.length : 0 },
@@ -1584,10 +1586,6 @@ function generateEntitiesSection(
         return withoutDefaultColumns.filter((attr) => attr.isCustom);
       case 'option-set-focused':
         return withoutDefaultColumns.filter((attr) => attr.type === AttributeType.OptionSet || attr.type === AttributeType.MultiSelectOptionSet);
-      case 'manually-selected': {
-        const selected = new Set(metadataSettings.manuallySelectedAttributes);
-        return withoutDefaultColumns.filter((attr) => selected.has(attr.name.toLowerCase()));
-      }
       case 'unmanaged-only':
         return withoutDefaultColumns.filter((attr) => attr.isManaged === undefined ? attr.isCustom : !attr.isManaged);
       case 'all':
@@ -3289,13 +3287,13 @@ function buildSolutionOutputSections(
         : '',
     ),
     createOutputSection('power-apps', documentationSettings.scope.apps ? generateAppsSection(solution.apps, entityMap) : ''),
-    createOutputSection('copilot-studio-agents', includeDetailedSections ? generateAgentsSection(solution.agents) : ''),
-    createOutputSection('ai-models', includeDetailedSections ? generateAIModelsSection(solution.aiModels) : ''),
-    createOutputSection('desktop-flows', includeDetailedSections ? generateDesktopFlowsSection(solution.desktopFlows) : ''),
-    createOutputSection('dataflows', includeDetailedSections ? generateDataflowsSection(solution.dataflows ?? []) : ''),
-    createOutputSection('custom-apis', includeDetailedSections ? generateCustomApisSection(solution.customApis ?? []) : ''),
-    createOutputSection('offline-profiles', includeDetailedSections ? generateOfflineProfilesSection(solution.offlineProfiles ?? []) : ''),
-    createOutputSection('web-resources', includeDetailedSections ? generateWebResourcesSection(solution.webResources) : ''),
+    createOutputSection('copilot-studio-agents', includeDetailedSections && documentationSettings.scope.copilotAgents ? generateAgentsSection(solution.agents) : ''),
+    createOutputSection('ai-models', includeDetailedSections && documentationSettings.scope.copilotAgents ? generateAIModelsSection(solution.aiModels) : ''),
+    createOutputSection('desktop-flows', includeDetailedSections && documentationSettings.scope.desktopFlows ? generateDesktopFlowsSection(solution.desktopFlows) : ''),
+    createOutputSection('dataflows', includeDetailedSections && documentationSettings.scope.desktopFlows ? generateDataflowsSection(solution.dataflows ?? []) : ''),
+    createOutputSection('custom-apis', includeDetailedSections && documentationSettings.scope.customApis ? generateCustomApisSection(solution.customApis ?? []) : ''),
+    createOutputSection('offline-profiles', includeDetailedSections && documentationSettings.scope.customApis ? generateOfflineProfilesSection(solution.offlineProfiles ?? []) : ''),
+    createOutputSection('web-resources', includeDetailedSections && documentationSettings.scope.webResources ? generateWebResourcesSection(solution.webResources) : ''),
     createOutputSection(
       'security-roles',
       documentationSettings.scope.security
