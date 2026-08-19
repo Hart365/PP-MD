@@ -90,6 +90,103 @@
   box-shadow: 0 0 0 2px rgba(37,99,235,0.25);
 }
 
+.toolbarBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Export menu ──────────────────────────────────────────────────────── */
+.exportMenuWrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Positioned via inline top/right (viewport-relative) so it is never
+   clipped by the viewer's `overflow: hidden` container. */
+.exportMenu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  min-width: 12rem;
+  padding: 0.35rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-md, 0 6px 20px rgba(0,0,0,0.18));
+}
+
+.exportMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  background: transparent;
+  color: var(--color-text-primary);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.exportMenuItem:hover,
+.exportMenuItem:focus-visible {
+  background: var(--color-surface-hover);
+  outline: none;
+}
+
+.exportMenuItem:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Search bar ───────────────────────────────────────────────────────── */
+.searchBar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--color-surface-alt);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.6rem;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  border: 2px solid var(--color-border);
+  border-radius: var(--border-radius-md);
+  font-size: 0.875rem;
+}
+
+.searchInput:focus-visible {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.25);
+}
+
+.searchMatchCount {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+/* Custom Highlight API paint targets for in-document search (Electron/Chromium). */
+:global(::highlight(ppmd-search)) {
+  background-color: rgba(250, 204, 21, 0.55);
+  color: inherit;
+}
+
+:global(::highlight(ppmd-search-active)) {
+  background-color: rgba(249, 115, 22, 0.9);
+  color: #000000;
+}
+
 /* ── Copy toast ───────────────────────────────────────────────────────── */
 .copyToast {
   padding: 0.4rem 1rem;

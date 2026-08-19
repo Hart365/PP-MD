@@ -2,6 +2,18 @@
 
 ---
 
+## Version 1.2.1
+
+This release refines the documentation viewer toolbar: export actions are now merged into a single dropdown, and an in-document search capability has been added.
+
+### Highlights
+
+- **Toolbar refinement**: Consolidated the three separate Export .md/.xlsx/.pdf buttons into a single **Export ▾** dropdown menu, reducing toolbar clutter.
+- **Toolbar visibility fix**: The export dropdown is positioned relative to the viewport instead of the toolbar, so it is never clipped by the Markdown viewer's `overflow: hidden` container.
+- **Search capability**: Added a **🔍 Search** toggle to the viewer toolbar that finds and highlights matching text in the rendered document, with next/previous navigation and a match counter.
+
+---
+
 ## Version 1.2.0
 
 This release expands Document Options with new toggles for previously always-on sections, removes the Manual Attributes selection mode, and updates all dependencies to their latest secure versions.

@@ -5,7 +5,7 @@
  * tables, and copy/export actions.
  */
 
-import { useState, useCallback, useRef, useMemo, type MouseEvent, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -52,11 +52,22 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
   const [showRaw, setShowRaw] = useState(false);
   const [copyMsg, setCopyMsg] = useState('');
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [exportMenuPosition, setExportMenuPosition] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMatchCount, setSearchMatchCount] = useState(0);
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(-1);
   const [mermaidProgressState, setMermaidProgressState] = useState<{
     docKey: string;
     renderedIds: Set<string>;
   }>({ docKey: '', renderedIds: new Set() });
   const contentRef = useRef<HTMLDivElement>(null);
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchRangesRef = useRef<Range[]>([]);
+  const supportsHighlightApi = typeof CSS !== 'undefined' && 'highlights' in CSS;
 
   const totalMermaidDiagrams = useMemo(() => (markdown.match(/```mermaid/g) ?? []).length, [markdown]);
   const mermaidDocumentKey = useMemo(
@@ -211,6 +222,170 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
     }
   }, [scrollToHeading]);
 
+  const closeExportMenu = useCallback(() => {
+    setIsExportMenuOpen(false);
+  }, []);
+
+  const toggleExportMenu = useCallback(() => {
+    setIsExportMenuOpen((open) => {
+      if (open) return false;
+      const rect = exportButtonRef.current?.getBoundingClientRect();
+      if (rect) {
+        setExportMenuPosition({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+      }
+      return true;
+    });
+  }, []);
+
+  // The menu is positioned relative to the viewport (not the toolbar) so it
+  // is never clipped by the viewer's `overflow: hidden` container.
+  useEffect(() => {
+    if (!isExportMenuOpen) return;
+
+    const handlePointerDown = (event: globalThis.MouseEvent) => {
+      const target = event.target as Node;
+      if (exportMenuRef.current?.contains(target) || exportButtonRef.current?.contains(target)) {
+        return;
+      }
+      closeExportMenu();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeExportMenu();
+    };
+    const handleReposition = () => {
+      const rect = exportButtonRef.current?.getBoundingClientRect();
+      if (rect) {
+        setExportMenuPosition({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
+  }, [closeExportMenu, isExportMenuOpen]);
+
+  const toggleSearch = useCallback(() => {
+    setIsSearchOpen((open) => {
+      const next = !open;
+      if (!next) {
+        setSearchQuery('');
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSearchQueryChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(event.target.value);
+  }, []);
+
+  const focusSearchMatch = useCallback((index: number) => {
+    const ranges = searchRangesRef.current;
+    if (!supportsHighlightApi || ranges.length === 0 || index < 0 || index >= ranges.length) return;
+
+    const range = ranges[index];
+    setCurrentSearchIndex(index);
+    if (typeof Highlight !== 'undefined') {
+      CSS.highlights.set('ppmd-search-active', new Highlight(range));
+    }
+    const container = range.startContainer instanceof Element
+      ? range.startContainer
+      : range.startContainer.parentElement;
+    container?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [supportsHighlightApi]);
+
+  const clearSearchHighlights = useCallback(() => {
+    if (supportsHighlightApi) {
+      CSS.highlights.delete('ppmd-search');
+      CSS.highlights.delete('ppmd-search-active');
+    }
+    searchRangesRef.current = [];
+    setSearchMatchCount(0);
+    setCurrentSearchIndex(-1);
+  }, [supportsHighlightApi]);
+
+  const resetActiveMatch = useCallback(() => {
+    if (supportsHighlightApi) {
+      CSS.highlights.delete('ppmd-search-active');
+    }
+    setCurrentSearchIndex(-1);
+  }, [supportsHighlightApi]);
+
+  const handleSearchNext = useCallback(() => {
+    const count = searchRangesRef.current.length;
+    if (count === 0) return;
+    focusSearchMatch((currentSearchIndex + 1 + count) % count);
+  }, [currentSearchIndex, focusSearchMatch]);
+
+  const handleSearchPrev = useCallback(() => {
+    const count = searchRangesRef.current.length;
+    if (count === 0) return;
+    focusSearchMatch((currentSearchIndex - 1 + count) % count);
+  }, [currentSearchIndex, focusSearchMatch]);
+
+  // Highlights search matches via the CSS Custom Highlight API so the
+  // read-only rendered content never needs to be mutated directly.
+  useEffect(() => {
+    if (!supportsHighlightApi) return;
+    const highlights = CSS.highlights;
+
+    if (!isSearchOpen || showRaw || !contentRef.current || !searchQuery.trim()) {
+      clearSearchHighlights();
+      return;
+    }
+
+    const query = searchQuery.trim().toLowerCase();
+    const walker = document.createTreeWalker(contentRef.current, NodeFilter.SHOW_TEXT);
+    const ranges: Range[] = [];
+    let node: Node | null = walker.nextNode();
+    while (node) {
+      const text = node.textContent ?? '';
+      const lowerText = text.toLowerCase();
+      let fromIndex = 0;
+      let matchIndex = lowerText.indexOf(query, fromIndex);
+      while (matchIndex !== -1) {
+        const range = new Range();
+        range.setStart(node, matchIndex);
+        range.setEnd(node, matchIndex + query.length);
+        ranges.push(range);
+        fromIndex = matchIndex + query.length;
+        matchIndex = lowerText.indexOf(query, fromIndex);
+      }
+      node = walker.nextNode();
+    }
+
+    searchRangesRef.current = ranges;
+    setSearchMatchCount(ranges.length);
+
+    if (typeof Highlight !== 'undefined') {
+      highlights.set('ppmd-search', new Highlight(...ranges));
+    }
+
+    if (ranges.length > 0) {
+      focusSearchMatch(0);
+    } else {
+      // Synchronizes the external Highlight API registry with React state
+      // for the "no matches" case; single call, no cascading renders.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      resetActiveMatch();
+    }
+    // focusSearchMatch is intentionally omitted: re-running it on every
+    // render would fight the user's manual next/previous navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSearchOpen, markdown, searchQuery, showRaw, supportsHighlightApi]);
+
+  useEffect(() => {
+    if (isSearchOpen) {
+      searchInputRef.current?.focus();
+    }
+  }, [isSearchOpen]);
+
   const handleExportPdf = useCallback(async () => {
     if (isExportingPdf) {
       return;
@@ -291,6 +466,21 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
     onStatusMessage?.(result.message);
   }, [fileName, markdown, onStatusMessage, title]);
 
+  const handleExportMdClick = useCallback(() => {
+    closeExportMenu();
+    onExport?.();
+  }, [closeExportMenu, onExport]);
+
+  const handleExportExcelClick = useCallback(() => {
+    closeExportMenu();
+    handleExportExcel();
+  }, [closeExportMenu, handleExportExcel]);
+
+  const handleExportPdfClick = useCallback(() => {
+    closeExportMenu();
+    void handleExportPdf();
+  }, [closeExportMenu, handleExportPdf]);
+
   return (
     <section
       className={styles.viewer}
@@ -319,46 +509,135 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
           <button
             type="button"
             className={styles.toolbarBtn}
+            onClick={toggleSearch}
+            aria-pressed={isSearchOpen}
+            disabled={showRaw}
+            aria-label={isSearchOpen ? 'Close document search' : 'Search document'}
+            title={showRaw ? 'Switch to Rendered view to search the document' : 'Search document'}
+          >
+            🔍 Search
+          </button>
+          <button
+            type="button"
+            className={styles.toolbarBtn}
             onClick={handleCopy}
             aria-label="Copy Markdown to clipboard"
           >
             📋 Copy
           </button>
+          <div className={styles.exportMenuWrapper}>
+            <button
+              ref={exportButtonRef}
+              type="button"
+              className={`${styles.toolbarBtn} ${styles.primary}`}
+              onClick={toggleExportMenu}
+              aria-haspopup="menu"
+              aria-expanded={isExportMenuOpen}
+              aria-label="Export documentation"
+            >
+              ⬇️ Export ▾
+            </button>
+          </div>
+        </div>
+      </div>
+      {isExportMenuOpen && (
+        <div
+          ref={exportMenuRef}
+          className={styles.exportMenu}
+          role="menu"
+          aria-label="Export format"
+          style={{ top: exportMenuPosition.top, right: exportMenuPosition.right }}
+        >
           {onExport && (
             <button
               type="button"
-              className={`${styles.toolbarBtn} ${styles.primary}`}
-              onClick={onExport}
-              aria-label="Download Markdown documentation as a .md file"
+              role="menuitem"
+              className={styles.exportMenuItem}
+              onClick={handleExportMdClick}
             >
-              ⬇️ Export .md
+              📄 Export .md
             </button>
           )}
           <button
             type="button"
-            className={`${styles.toolbarBtn} ${styles.primary}`}
-            onClick={handleExportExcel}
-            aria-label="Download Markdown tables as an Excel workbook with one tab per table"
+            role="menuitem"
+            className={styles.exportMenuItem}
+            onClick={handleExportExcelClick}
             title="Export all Markdown tables to Excel"
           >
-            ⬇️ Export .xlsx
+            📊 Export .xlsx
           </button>
           <button
             type="button"
-            className={`${styles.toolbarBtn} ${styles.primary}`}
-            onClick={handleExportPdf}
+            role="menuitem"
+            className={styles.exportMenuItem}
+            onClick={handleExportPdfClick}
             disabled={isExportingPdf}
-            aria-label="Download rendered documentation as an accessible PDF file"
             title={showRaw
               ? 'Switch to Rendered view for diagram-inclusive PDF export'
               : isExportingPdf
                 ? 'Preparing PDF export'
                 : 'Export rendered documentation to PDF'}
           >
-            {isExportingPdf ? '⏳ Preparing PDF...' : '⬇️ Export .pdf'}
+            {isExportingPdf ? '⏳ Preparing PDF...' : '🧾 Export .pdf'}
           </button>
         </div>
-      </div>
+      )}
+      {isSearchOpen && !showRaw && (
+        <div className={styles.searchBar} role="search">
+          <label htmlFor="markdown-search-input" className="sr-only">Search document</label>
+          <input
+            id="markdown-search-input"
+            ref={searchInputRef}
+            type="text"
+            className={styles.searchInput}
+            value={searchQuery}
+            onChange={handleSearchQueryChange}
+            placeholder="Search document…"
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                if (event.shiftKey) handleSearchPrev(); else handleSearchNext();
+              } else if (event.key === 'Escape') {
+                toggleSearch();
+              }
+            }}
+          />
+          <span className={styles.searchMatchCount} aria-live="polite">
+            {searchQuery.trim()
+              ? searchMatchCount > 0
+                ? `${currentSearchIndex + 1} of ${searchMatchCount}`
+                : 'No matches'
+              : ''}
+          </span>
+          <button
+            type="button"
+            className={styles.toolbarBtn}
+            onClick={handleSearchPrev}
+            disabled={searchMatchCount === 0}
+            aria-label="Previous match"
+          >
+            ▲
+          </button>
+          <button
+            type="button"
+            className={styles.toolbarBtn}
+            onClick={handleSearchNext}
+            disabled={searchMatchCount === 0}
+            aria-label="Next match"
+          >
+            ▼
+          </button>
+          <button
+            type="button"
+            className={styles.toolbarBtn}
+            onClick={toggleSearch}
+            aria-label="Close search"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {copyMsg && (
         <div aria-live="polite" className={styles.copyToast} role="status">
           {copyMsg}

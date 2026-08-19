@@ -122,9 +122,11 @@ You can also load previously generated documents directly using **Open .md** in 
 
 When a document contains Mermaid content, the viewer toolbar shows live diagram render progress as **Diagrams X/Y rendered**.
 
+Use **🔍 Search** in the viewer toolbar to find text within the rendered document — matches are highlighted, with next/previous navigation and a match counter.
+
 ### 4. Export
 
-Use the Markdown viewer toolbar to export the active document in either format:
+Use the single **⬇️ Export ▾** menu in the Markdown viewer toolbar to export the active document:
 
 - **Export .md**: saves the raw Markdown source.
 - **Export .pdf**: saves a rendered PDF (desktop app) with Mermaid diagrams included. Large diagrams and wide tables are optimized for print flow by switching to landscape pages and splitting oversized content where required.
