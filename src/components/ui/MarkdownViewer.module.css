@@ -180,15 +180,15 @@
 }
 
 /* Custom Highlight API paint targets for in-document search (Electron/Chromium).
-   Opaque colors with verified WCAG 2.2 AA contrast (>= 4.5:1) for their text color. */
+   Opaque colors with verified WCAG 2.2 AAA contrast (>= 7:1) for their text color. */
 :global(::highlight(ppmd-search)) {
   background-color: #fbbf24;
   color: #1c1300;
 }
 
 :global(::highlight(ppmd-search-active)) {
-  background-color: #ea580c;
-  color: #000000;
+  background-color: #1d4ed8;
+  color: #ffffff;
 }
 
 /* ── Copy toast ───────────────────────────────────────────────────────── */

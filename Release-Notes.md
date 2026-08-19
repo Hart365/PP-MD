@@ -2,6 +2,17 @@
 
 ---
 
+## Version 1.2.3
+
+This release fixes the real root cause of the toolbar not staying anchored — the page itself, not just the viewer panel, was scrolling — and further hardens the search highlight contrast.
+
+### Highlights
+
+- **Toolbar anchoring (root cause fix)**: `html`, `body`, and `#root` only had `min-height: 100vh`, so the whole page could grow taller than the viewport and scroll as a unit, carrying the toolbar off screen regardless of the viewer panel's own layout. They are now bounded to `height: 100%`/`overflow: hidden`, so only the intended internal regions (e.g. the document content area) scroll, and the toolbar and back-to-top button stay fixed in view.
+- **Higher-contrast active search highlight**: Replaced the orange/black active-match highlight with a solid blue background (`#1d4ed8`) and white text (~10.4:1 contrast), clearly exceeding WCAG 2.2 AAA (7:1), and visually distinct from the yellow "all matches" highlight.
+
+---
+
 ## Version 1.2.2
 
 This release fixes the documentation viewer toolbar anchoring, tightens search behavior and contrast, and restores the missing app/window icon in packaged builds.

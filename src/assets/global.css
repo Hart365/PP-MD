@@ -167,6 +167,7 @@
 html {
   font-size: 16px;            /* 1rem baseline */
   scroll-behavior: smooth;
+  height: 100%;
 }
 
 body {
@@ -175,7 +176,7 @@ body {
   line-height: 1.6;
   background-color: var(--color-bg);
   color: var(--color-text-primary);
-  min-height: 100vh;
+  height: 100%;
   /* Smooth theme transitions – except when user has reduced motion */
   transition: background-color var(--transition-base), color var(--transition-base);
 }
@@ -353,5 +354,8 @@ pre code {
 #root {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100%;
+  /* Bounds the app to the viewport so only .main scrolls internally,
+     instead of the whole page growing past the viewport and scrolling. */
+  overflow: hidden;
 }
