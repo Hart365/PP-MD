@@ -4,12 +4,30 @@
 
 ## Version 1.2.3
 
-This release fixes the real root cause of the toolbar not staying anchored — the page itself, not just the viewer panel, was scrolling — and further hardens the search highlight contrast.
+This release brings in-document search, expanded export options, more granular documentation filtering, and a range of usability and stability fixes since v1.1.22.
 
 ### Highlights
 
-- **Toolbar anchoring (root cause fix)**: `html`, `body`, and `#root` only had `min-height: 100vh`, so the whole page could grow taller than the viewport and scroll as a unit, carrying the toolbar off screen regardless of the viewer panel's own layout. They are now bounded to `height: 100%`/`overflow: hidden`, so only the intended internal regions (e.g. the document content area) scroll, and the toolbar and back-to-top button stay fixed in view.
-- **Higher-contrast active search highlight**: Replaced the orange/black active-match highlight with a solid blue background (`#1d4ed8`) and white text (~10.4:1 contrast), clearly exceeding WCAG 2.2 AAA (7:1), and visually distinct from the yellow "all matches" highlight.
+- **Search functionality** within the Markdown Viewer — find and highlight matching text in the rendered document, with next/previous navigation and a match counter.
+- **Export to Excel and PDF**, as well as Markdown, from a single consolidated Export menu.
+- **More filtering options for documentation** — select which elements (Web Resources, Desktop Flows & Dataflows, Custom APIs & Offline Profiles, Copilot Studio Agents & AI Models, and more) to include.
+- **Choose what Column details to include** on Table reports (Type, Required, Custom, Notes, Description).
+- **Misc. bug fixes and usability improvements** — toolbar anchoring fix so it no longer scrolls off screen, a back-to-top button, WCAG 2.2-compliant search highlight contrast, restored app/window icon in packaged builds, dependency updates, and security hardening.
+
+### Detailed changes
+
+- Fixed the root cause of the toolbar not staying anchored — `html`, `body`, and `#root` only had `min-height: 100vh`, so the whole page (not just the viewer panel) could grow past the viewport and scroll as a unit. They are now bounded to `height: 100%`/`overflow: hidden`, so only the document content area scrolls.
+- Replaced the orange/black active-match search highlight with a solid blue background and white text (~10.4:1 contrast), exceeding WCAG 2.2 AAA (7:1), and visually distinct from the yellow "all matches" highlight.
+- Search now requires at least 3 characters before it starts matching, with a "Type 3+ characters" hint for shorter queries.
+- Added a **⬆️ Top** button that appears once you've scrolled down.
+- Consolidated the three separate Export .md/.xlsx/.pdf buttons into a single **Export ▾** dropdown menu, positioned so it is never clipped by the viewer's container.
+- Added Document Options toggles for Web Resources, Desktop Flows & Dataflows, Custom APIs & Offline Profiles, and Copilot Studio Agents & AI Models.
+- Removed the "Manual Attributes" text field and the "Manually Selected" attribute selection mode from Table Options.
+- `build/icon.ico` is now bundled into the packaged app so the Electron window icon resolves correctly at runtime, in addition to the executable icon.
+- Updated all dependencies to their latest compatible versions and removed the unused, vulnerable `xlsx` dependency, resolving all `npm audit` findings (0 vulnerabilities).
+- Replaced regex-based HTML sanitization in the PDF export path with DOMPurify, and fixed unsafe HTML-entity decoding order in the PDF and Excel export utilities, resolving CodeQL alerts (bad HTML tag filtering, incomplete sanitization, double-escaping).
+- Hardened the CI workflow's `GITHUB_TOKEN` permissions to read-only.
+- Fixed accessibility issues with the collapsible sections and added missing column type mappings for Choice fields.
 
 ---
 
