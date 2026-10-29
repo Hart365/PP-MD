@@ -39,6 +39,10 @@ import type {
 } from '../types/solution';
 
 import { ProcessCategory, WebResourceType, AttributeType, AppType } from '../types/solution';
+import { availableTableMetadataBlocks } from './tableMetadata';
+import { generateDependencyReportMarkdown } from './localDocumentation';
+export { generateDiagnosticsMarkdown, generateDependencyReportMarkdown } from './localDocumentation';
+export { splitMarkdownByCategory } from './documentSplitter';
 import {
   createMetadataGridSection,
   createOutputSection,
@@ -106,6 +110,10 @@ export interface MermaidPaletteSettings {
 }
 
 export interface DocumentationSettings {
+  includeDiagrams?: boolean;
+  createConsolidatedDocument?: boolean;
+  generateMissingDependencies?: boolean;
+  mermaidColourTheme?: 'neutral' | 'default' | 'dark' | 'forest' | 'base';
   detailLevel: DocumentationDetailLevel;
   scope: DocumentationScopeSettings;
   metadata: DocumentationMetadataSettings;
@@ -122,6 +130,10 @@ export const DEFAULT_MERMAID_PALETTE: MermaidPaletteSettings = {
 };
 
 export const DEFAULT_DOCUMENTATION_SETTINGS: DocumentationSettings = {
+  includeDiagrams: true,
+  createConsolidatedDocument: true,
+  generateMissingDependencies: false,
+  mermaidColourTheme: 'neutral',
   detailLevel: 'detailed',
   scope: {
     flows: true,
@@ -479,6 +491,60 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
     separateDiagramsDocument: settings?.separateDiagramsDocument ?? DEFAULT_DOCUMENTATION_SETTINGS.separateDiagramsDocument,
     mermaidPalette: normalizeMermaidPalette(settings?.mermaidPalette),
   };
+}
+
+export function applyDocumentationScope(solution: ParsedSolution, settings?: DocumentationSettings): ParsedSolution {
+  const scope = { ...DEFAULT_DOCUMENTATION_SETTINGS.scope, ...settings?.scope };
+  return {
+    ...solution,
+    processes: scope.flows ? solution.processes : [],
+    apps: scope.apps ? solution.apps : [],
+    securityRoles: scope.security ? solution.securityRoles : [],
+    fieldSecurityProfiles: scope.security ? solution.fieldSecurityProfiles : [],
+    connectionReferences: scope.integration ? solution.connectionReferences : [],
+    environmentVariables: scope.integration ? solution.environmentVariables : [],
+    emailTemplates: scope.integration ? solution.emailTemplates : [],
+    pluginAssemblies: scope.plugins ? solution.pluginAssemblies : [],
+    reports: scope.reports ? solution.reports : [],
+    dashboards: scope.reports ? solution.dashboards : [],
+    webResources: scope.webResources ? solution.webResources : [],
+    desktopFlows: scope.desktopFlows ? solution.desktopFlows : [],
+    dataflows: scope.desktopFlows ? solution.dataflows : [],
+    customApis: scope.customApis ? solution.customApis : [],
+    offlineProfiles: scope.customApis ? solution.offlineProfiles : [],
+    agents: scope.copilotAgents ? solution.agents : [],
+    aiModels: scope.copilotAgents ? solution.aiModels : [],
+  };
+}
+
+export function selectDocumentationAttributes(entity: EntityDefinition, forms: FormDefinition[], metadata: DocumentationMetadataSettings): EntityDefinition['attributes'] {
+  const formFields = new Set(forms.filter((form) => form.entityLogicalName.toLowerCase() === entity.logicalName.toLowerCase())
+    .flatMap((form) => form.fields.map((field) => field.attributeName.toLowerCase())));
+  return entity.attributes.filter((attribute) => {
+    if (metadata.excludeVirtualAttributes && attribute.type === AttributeType.Virtual) return false;
+    if (!metadata.includeDefaultColumns && !attribute.isCustom) return false;
+    switch (metadata.attributeSelectionMode) {
+      case 'custom-only': return attribute.isCustom;
+      case 'attributes-on-form': return formFields.has(attribute.name.toLowerCase());
+      case 'attributes-not-on-form': return !formFields.has(attribute.name.toLowerCase());
+      case 'option-set-focused': return attribute.type === AttributeType.OptionSet || attribute.type === AttributeType.MultiSelectOptionSet;
+      case 'unmanaged-only': return attribute.isManaged === undefined ? attribute.isCustom : !attribute.isManaged;
+      default: return true;
+    }
+  });
+}
+
+export function filterDocumentationPrivileges(role: SecurityRoleDefinition, entities: EntityDefinition[], filters: DocumentationSecurityRoleFilters): SecurityRoleDefinition['privileges'] {
+  const tableNames = (items: EntityDefinition[]) => new Set(items.flatMap((entity) => [entity.logicalName, entity.entitySetName]
+    .filter((name): name is string => Boolean(name)).map((name) => name.toLowerCase())));
+  const included = tableNames(entities);
+  const custom = tableNames(entities.filter(isLikelyCustomTable));
+  return role.privileges.filter((privilege) => {
+    const parsed = parseRolePrivilege(privilege.privilegeName);
+    if (!filters.onlyTablesInCurrentSolution && !filters.onlyCustomTables) return true;
+    return Boolean(parsed && (!filters.onlyTablesInCurrentSolution || included.has(parsed.table))
+      && (!filters.onlyCustomTables || custom.has(parsed.table)));
+  });
 }
 
 function looksLikeCustomTableName(name: string | undefined): boolean {
@@ -869,7 +935,39 @@ export function consolidateSolutions(solutions: ParsedSolution[]): ParsedSolutio
     reports,
     dashboards,
     pluginAssemblies,
+    dependencySolutionUniqueNames: uniqueStrings(items.flatMap((solution) => solution.dependencySolutionUniqueNames ?? [solution.metadata.uniqueName])),
+    missingDependencies: items.every((solution) => solution.missingDependencies !== undefined)
+      ? items.flatMap((solution) => (solution.missingDependencies ?? []).map((dependency) => ({
+        ...dependency, solutionUniqueName: dependency.solutionUniqueName ?? solution.metadata.uniqueName,
+      }))) : undefined,
+    missingDependenciesError: items.flatMap((solution) => solution.missingDependenciesError
+      ? [`${solution.metadata.uniqueName}: ${solution.missingDependenciesError}`] : []).join('; ') || undefined,
+    solutionComponents: items.flatMap((solution) => solution.solutionComponents ?? []),
     warnings: uniqueStrings(items.flatMap((solution) => solution.warnings)),
+  };
+}
+
+export function fillSolutionGapsFromPeerSolutions(target: ParsedSolution, peers: ParsedSolution[]): ParsedSolution {
+  if (peers.length === 0) return target;
+  const merged = consolidateSolutions([target, ...peers]);
+  const resolve = <Item,>(items: Item[], allItems: Item[], key: (item: Item) => string): Item[] => {
+    const byKey = new Map(allItems.map((item) => [key(item).toLowerCase(), item]));
+    return items.map((item) => byKey.get(key(item).toLowerCase()) ?? item);
+  };
+  return {
+    ...target,
+    entities: resolve(target.entities, merged.entities, (item) => item.logicalName),
+    optionSets: resolve(target.optionSets, merged.optionSets, (item) => item.name),
+    forms: resolve(target.forms, merged.forms, (item) => `${item.entityLogicalName}|${item.name}|${item.formType}`),
+    views: resolve(target.views, merged.views, (item) => `${item.entityLogicalName}|${item.name}|${item.viewType}`),
+    processes: resolve(target.processes, merged.processes, (item) => stripTrailingGuid(item.uniqueName || item.name)),
+    apps: resolve(target.apps, merged.apps, (item) => `${item.appType}|${stripTrailingGuid(item.uniqueName || item.name)}`),
+    webResources: resolve(target.webResources, merged.webResources, (item) => item.schemaName || item.name),
+    securityRoles: resolve(target.securityRoles, merged.securityRoles, (item) => item.name),
+    fieldSecurityProfiles: resolve(target.fieldSecurityProfiles, merged.fieldSecurityProfiles, (item) => item.name),
+    connectionReferences: resolve(target.connectionReferences, merged.connectionReferences, (item) => item.name),
+    environmentVariables: resolve(target.environmentVariables, merged.environmentVariables, (item) => item.schemaName),
+    pluginAssemblies: resolve(target.pluginAssemblies, merged.pluginAssemblies, (item) => item.assemblyName),
   };
 }
 
@@ -1017,7 +1115,6 @@ function mermaidLinkStyle(relation: string | undefined, palette: MermaidPaletteS
       return `stroke:${palette.sourceTwo},stroke-width:3px;stroke-linecap:round`;
     case 'touches':
     case 'reports':
-    case 'visualizes':
       return `stroke:${palette.sourceThree},stroke-width:3px;stroke-linecap:round`;
     default:
       return `stroke:${palette.sourceFour},stroke-width:3px;stroke-linecap:round`;
@@ -1561,42 +1658,9 @@ function generateEntitiesSection(
       .map((permission) => permission.attributeName.toLowerCase()),
   );
 
-  const filterAttributesForEntity = (entity: EntityDefinition) => {
-    const formFieldNames = new Set(
-      forms
-        .filter((form) => form.entityLogicalName.toLowerCase() === entity.logicalName.toLowerCase())
-        .flatMap((form) => form.fields)
-        .map((field) => field.attributeName.toLowerCase()),
-    );
-
-    const withoutVirtual = metadataSettings.excludeVirtualAttributes
-      ? entity.attributes.filter((attr) => attr.type !== AttributeType.Virtual)
-      : entity.attributes;
-
-    const withoutDefaultColumns = metadataSettings.includeDefaultColumns
-      ? withoutVirtual
-      : withoutVirtual.filter((attr) => attr.isCustom);
-
-    switch (metadataSettings.attributeSelectionMode) {
-      case 'attributes-on-form':
-        return withoutDefaultColumns.filter((attr) => formFieldNames.has(attr.name.toLowerCase()));
-      case 'attributes-not-on-form':
-        return withoutDefaultColumns.filter((attr) => !formFieldNames.has(attr.name.toLowerCase()));
-      case 'custom-only':
-        return withoutDefaultColumns.filter((attr) => attr.isCustom);
-      case 'option-set-focused':
-        return withoutDefaultColumns.filter((attr) => attr.type === AttributeType.OptionSet || attr.type === AttributeType.MultiSelectOptionSet);
-      case 'unmanaged-only':
-        return withoutDefaultColumns.filter((attr) => attr.isManaged === undefined ? attr.isCustom : !attr.isManaged);
-      case 'all':
-      default:
-        return withoutDefaultColumns;
-    }
-  };
-
   sortByLabel(entities, (entity) => labelWithSchema(entity.displayName || entity.logicalName, entity.logicalName)).forEach((entity) => {
     const entityDisplayName = entity.displayName || entity.logicalName;
-    const selectedAttributes = filterAttributesForEntity(entity);
+    const selectedAttributes = selectDocumentationAttributes(entity, forms, metadataSettings);
 
     lines.push(heading(3, `${entityDisplayName} (${entity.logicalName})`));
     lines.push('');
@@ -1620,6 +1684,14 @@ function generateEntitiesSection(
     if (entity.changeTracking) lines.push(`| **Change Tracking** | Enabled |`);
     if (entity.description) lines.push(`| **Description** | ${mdEscape(entity.description)} |`);
     lines.push('');
+
+    if (entity.metadataSource === 'local') {
+      availableTableMetadataBlocks(entity).filter((block) => block.heading !== 'General').forEach((block) => {
+        lines.push(heading(4, block.heading), '', '| Property | Value |', '| --- | --- |');
+        block.items.forEach(([label, value]) => lines.push(`| ${mdEscape(label)} | ${mdEscape(value)} |`));
+        lines.push('');
+      });
+    }
 
     // Columns
     if (selectedAttributes.length > 0) {
@@ -2807,16 +2879,14 @@ function generateIntegrationSection(
   if (envVars.length > 0) {
     lines.push(heading(2, 'Environment Variables'));
     lines.push('');
-    lines.push('| Display Name | Schema Name | Type | Has Value | Current Value | Default Value |');
-    lines.push('|--------------|-------------|------|-----------|---------------|---------------|');
+    lines.push('| Display Name | Schema Name | Type | Has Current Value | Default Value |');
+    lines.push('|--------------|-------------|------|-------------------|---------------|');
     sortByLabel(envVars, (ev) => ev.displayName || ev.schemaName).forEach((ev) => {
-      const hasAnyValue = !!(ev.hasCurrentValue || (ev.currentValue && ev.currentValue.trim()) || (ev.defaultValue && ev.defaultValue.trim()));
       lines.push(
         `| ${mdEscape(ev.displayName || ev.schemaName)} ` +
         `| \`${mdEscape(ev.schemaName)}\` ` +
         `| ${ev.type} ` +
-        `| ${hasAnyValue ? '✅' : '⚠️ Not set'} ` +
-        `| ${ev.hasCurrentValue ? mdEscape(ev.currentValue) || 'Set' : '–'} ` +
+        `| ${ev.hasCurrentValue === undefined ? 'Unknown' : ev.hasCurrentValue ? 'Yes' : 'No'} ` +
         `| ${mdEscape(ev.defaultValue) || '–'} |`,
       );
     });
@@ -2990,7 +3060,16 @@ export function generateMarkdown(
   solution: ParsedSolution,
   options: MarkdownGenerationOptions = {},
 ): string {
-  return renderMarkdownDocument(buildSolutionOutputSections(solution, options), { addBackToTopLinks: true });
+  let markdown = renderMarkdownDocument(buildSolutionOutputSections(solution, options).filter((section) => section.id !== 'warnings'), { addBackToTopLinks: true });
+  if (options.documentationSettings?.includeDiagrams === false) markdown = stripEmptyDiagramSections(removeMermaidBlocks(markdown));
+  const theme = options.documentationSettings?.mermaidColourTheme;
+  if (theme && ['neutral', 'default', 'dark', 'forest', 'base'].includes(theme)) {
+    markdown = markdown.replace(/^%%\{ init: \{ 'theme': '(?:neutral|base)'/gm, `%%{ init: { 'theme': '${theme}'`);
+  }
+  if (options.documentationSettings?.generateMissingDependencies) {
+    markdown += '\n\n' + generateDependencyReportMarkdown(solution).replace(/^# .+\n/, '## Missing Dependencies\n');
+  }
+  return markdown;
 }
 
 function splitMarkdownSections(markdown: string): string[] {
@@ -3241,6 +3320,7 @@ function buildSolutionOutputSections(
   solution: ParsedSolution,
   options: MarkdownGenerationOptions,
 ): OutputSection[] {
+  solution = applyDocumentationScope(solution, options.documentationSettings);
   const documentationSettings = normalizeDocumentationSettings(options.documentationSettings);
   const includeDetailedSections = documentationSettings.detailLevel === 'detailed';
   const entityMap = buildEntityDisplayMap(solution.entities);
@@ -3372,9 +3452,11 @@ export function generateConsolidatedMarkdown(
   solutions: ParsedSolution[],
   options: MarkdownGenerationOptions = {},
 ): string {
-  const items = solutions.filter((s) => !!s.metadata.uniqueName);
+  const settings = normalizeDocumentationSettings(options.documentationSettings);
+  const items = solutions.filter((solution) => !!solution.metadata.uniqueName)
+    .map((solution) => applyDocumentationScope(solution, options.documentationSettings));
   if (items.length === 0) return '';
-  if (items.length === 1) return generateMarkdown(items[0]);
+  if (items.length === 1) return generateMarkdown(items[0], options);
 
   const consolidated = consolidateSolutions(items);
   const consolidatedEntityMap = buildEntityDisplayMap(consolidated.entities);
@@ -3411,8 +3493,8 @@ export function generateConsolidatedMarkdown(
     ...(sharedEntities.length > 0
       ? ['- [Shared Dataverse Tables](#shared-dataverse-tables)']
       : []),
-    '- [Apps Across Solutions](#apps-across-solutions)',
-    '- [Processes Across Solutions](#processes-across-solutions)',
+    ...(settings.scope.apps ? ['- [Apps Across Solutions](#apps-across-solutions)'] : []),
+    ...(settings.scope.flows ? ['- [Processes Across Solutions](#processes-across-solutions)'] : []),
     '',
     heading(2, 'Included Solutions'),
     '',
@@ -3479,19 +3561,21 @@ export function generateConsolidatedMarkdown(
     lines.push('');
   }
 
-  lines.push(heading(2, 'Apps Across Solutions'));
-  lines.push('');
-  lines.push('| App | Type | Tables | Connectors |');
-  lines.push('|-----|------|--------|------------|');
-  sortByLabel(consolidated.apps.filter(isDocumentedApp), (app) => appTitle(app)).forEach((app) => {
-    lines.push(
-      `| ${mdEscape(appTitle(app))} ` +
-      `| ${appTypeLabel(app.appType)} ` +
-      `| ${tableBulletedList(sortByLabel(app.entities ?? [], (e) => e).map((table) => entityDisplayLabel(table, consolidatedEntityMap)))} ` +
-      `| ${tableBulletedList(sortByLabel(app.connectors ?? [], (c) => c))} |`,
-    );
-  });
-  lines.push('');
+  if (settings.scope.apps) {
+    lines.push(heading(2, 'Apps Across Solutions'));
+    lines.push('');
+    lines.push('| App | Type | Tables | Connectors |');
+    lines.push('|-----|------|--------|------------|');
+    sortByLabel(consolidated.apps.filter(isDocumentedApp), (app) => appTitle(app)).forEach((app) => {
+      lines.push(
+        `| ${mdEscape(appTitle(app))} ` +
+        `| ${appTypeLabel(app.appType)} ` +
+        `| ${tableBulletedList(sortByLabel(app.entities ?? [], (e) => e).map((table) => entityDisplayLabel(table, consolidatedEntityMap)))} ` +
+        `| ${tableBulletedList(sortByLabel(app.connectors ?? [], (c) => c))} |`,
+      );
+    });
+    lines.push('');
+  }
 
   const processUsage = new Map<string, Set<string>>();
   items.forEach((sol) => {
@@ -3503,24 +3587,26 @@ export function generateConsolidatedMarkdown(
     });
   });
 
-  lines.push(heading(2, 'Processes Across Solutions'));
-  lines.push('');
-  lines.push('| Process | Category | Solutions | No. of Solutions | Primary Table | Referenced Tables |');
-  lines.push('|---------|----------|-----------|------------------|---------------|-------------------|');
-  sortByLabel(consolidated.processes, (process) => processTitle(process)).forEach((process) => {
-    const relatedTables = uniqueStrings([...(process.relatedEntities ?? []), process.primaryEntity]);
-    const key = stripTrailingGuid(process.uniqueName || process.name || process.displayName || '').toLowerCase();
-    const solutionsForProcess = sortByLabel(Array.from(processUsage.get(key) ?? []), (s) => s);
-    lines.push(
-      `| ${mdEscape(processTitle(process))} ` +
-      `| ${processCategoryLabel(process.category)} ` +
-      `| ${solutionsForProcess.length > 0 ? solutionsForProcess.map((s) => mdEscape(s)).join(', ') : '–'} ` +
-      `| ${solutionsForProcess.length} ` +
-      `| ${entityDisplayLabel(process.primaryEntity, consolidatedEntityMap)} ` +
-      `| ${relatedTables.length > 0 ? sortByLabel(relatedTables, (table) => table).map((table) => entityDisplayLabel(table, consolidatedEntityMap)).join(', ') : '–'} |`,
-    );
-  });
-  lines.push('');
+  if (settings.scope.flows) {
+    lines.push(heading(2, 'Processes Across Solutions'));
+    lines.push('');
+    lines.push('| Process | Category | Solutions | No. of Solutions | Primary Table | Referenced Tables |');
+    lines.push('|---------|----------|-----------|------------------|---------------|-------------------|');
+    sortByLabel(consolidated.processes, (process) => processTitle(process)).forEach((process) => {
+      const relatedTables = uniqueStrings([...(process.relatedEntities ?? []), process.primaryEntity]);
+      const key = stripTrailingGuid(process.uniqueName || process.name || process.displayName || '').toLowerCase();
+      const solutionsForProcess = sortByLabel(Array.from(processUsage.get(key) ?? []), (s) => s);
+      lines.push(
+        `| ${mdEscape(processTitle(process))} ` +
+        `| ${processCategoryLabel(process.category)} ` +
+        `| ${solutionsForProcess.length > 0 ? solutionsForProcess.map((s) => mdEscape(s)).join(', ') : '–'} ` +
+        `| ${solutionsForProcess.length} ` +
+        `| ${entityDisplayLabel(process.primaryEntity, consolidatedEntityMap)} ` +
+        `| ${relatedTables.length > 0 ? sortByLabel(relatedTables, (table) => table).map((table) => entityDisplayLabel(table, consolidatedEntityMap)).join(', ') : '–'} |`,
+      );
+    });
+    lines.push('');
+  }
 
   return renderMarkdownDocument([
     createOutputSection('consolidated-summary', lines.join('\n')),

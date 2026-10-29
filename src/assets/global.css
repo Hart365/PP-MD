@@ -61,6 +61,8 @@
   --color-accent:          #2563eb;   /* primary button / link */
   --color-accent-hover:    #1d4ed8;   /* hover darken */
   --color-accent-subtle:   #dbeafe;   /* light accent bg for chips/badges */
+  --color-menu-highlight-bg: #1d4ed8;
+  --color-menu-highlight-text: #ffffff;
 
   /* Semantic status */
   --color-success:         #166534;   /* 5.2:1 on bg */
@@ -95,6 +97,8 @@
 
   /* Component tokens */
   --border-radius-sm:      4px;
+  --control-height:        40px;
+  --control-radius:        6px;
   --border-radius-md:      8px;
   --border-radius-lg:      12px;
   --border-radius-pill:    9999px;
@@ -128,6 +132,8 @@
   --color-accent:          #60a5fa;
   --color-accent-hover:    #93c5fd;
   --color-accent-subtle:   #1e3a5f;
+  --color-menu-highlight-bg: #93c5fd;
+  --color-menu-highlight-text: #1a1a2e;
 
   /* Semantic status */
   --color-success:         #86efac;   /* 6.7:1 on bg */
@@ -176,6 +182,7 @@ body {
   line-height: 1.6;
   background-color: var(--color-bg);
   color: var(--color-text-primary);
+    overflow: hidden;
   height: 100%;
   /* Smooth theme transitions – except when user has reduced motion */
   transition: background-color var(--transition-base), color var(--transition-base);

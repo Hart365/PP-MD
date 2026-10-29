@@ -1,0 +1,37 @@
+name: Accessibility barrier
+description: Tell us what is getting in your way. No accessibility expertise needed.
+title: "[Accessibility]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Only the description of the barrier is required. You do not need to share a diagnosis or disability.
+        This report is public. Do not include customer files, sensitive metadata, credentials, or personal information. Screenshots are optional.
+        See the [Accessibility statement](https://github.com/Hart365/PP-MD/blob/main/ACCESSIBILITY.MD) for limitations and an alternative contact route.
+  - type: textarea
+    id: barrier
+    attributes:
+      label: What is getting in your way?
+      description: What were you trying to do, what happened, and what did you need instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we find the problem?
+      description: Describe the screen, control, document, or export involved, where possible.
+  - type: textarea
+    id: impact
+    attributes:
+      label: How does it affect your task?
+      description: Include a workaround if you have found one.
+  - type: textarea
+    id: setup
+    attributes:
+      label: Your setup, if known
+      description: PP-MD version, Windows or browser version, assistive technology, theme, zoom, and input method, only where relevant and comfortable to share.
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else that helps?
+      description: Optional safe examples or redacted screenshots. A WCAG reference is not required.

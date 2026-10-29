@@ -17,6 +17,8 @@ import type { ParsedSolution } from '../types/solution';
 export interface SidebarSolutionItem {
   solution: ParsedSolution;
   fileName: string;
+  group?: string;
+  label?: string;
 }
 
 export interface SolutionSidebarProps {
@@ -40,6 +42,13 @@ export function SolutionSidebar({
   onReset,
 }: SolutionSidebarProps) {
   if (items.length === 0) return null;
+  const groupedItems = new Map<string, Array<{ item: SidebarSolutionItem; index: number }>>();
+  items.forEach((item, index) => {
+    const group = item.group || 'Solutions';
+    const entries = groupedItems.get(group) ?? [];
+    entries.push({ item, index });
+    groupedItems.set(group, entries);
+  });
 
   return (
     <nav
@@ -62,8 +71,12 @@ export function SolutionSidebar({
       </div>
 
       {/* Solution list */}
-      <ul className={styles.list} role="list">
-        {items.map(({ solution: sol, fileName }, idx) => {
+      <div className={styles.groups}>
+        {[...groupedItems].map(([group, entries]) => (
+          <section key={group} aria-label={group}>
+            <h2 className={styles.groupTitle}>{group}</h2>
+            <ul className={styles.list} role="list">
+        {entries.map(({ item: { solution: sol, fileName, label }, index: idx }) => {
           const isActive  = idx === activeIndex;
           const itemClass = [styles.item, isActive ? styles.active : ''].filter(Boolean).join(' ');
 
@@ -74,14 +87,14 @@ export function SolutionSidebar({
                 className={itemClass}
                 onClick={() => onSelect(idx)}
                 aria-current={isActive ? 'page' : undefined}
-                aria-label={`View documentation for ${sol.metadata.displayName}`}
+                aria-label={`View documentation for ${label || sol.metadata.displayName}`}
                 title={fileName}
               >
                 <span className={styles.solIcon} aria-hidden="true">
                   {sol.metadata.isManaged ? '🔒' : '📄'}
                 </span>
                 <span className={styles.solName}>
-                  {sol.metadata.displayName || sol.metadata.uniqueName}
+                  {label || sol.metadata.displayName || sol.metadata.uniqueName}
                 </span>
                 <span className={styles.solVersion} aria-label={`Version ${sol.metadata.version}`}>
                   v{sol.metadata.version}
@@ -90,7 +103,10 @@ export function SolutionSidebar({
             </li>
           );
         })}
-      </ul>
+            </ul>
+          </section>
+        ))}
+      </div>
 
       {/* Summary counts */}
       {items[activeIndex] && (

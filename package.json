@@ -1,7 +1,7 @@
 {
   "name": "pp-md",
   "private": true,
-  "version": "1.2.3",
+  "version": "1.3.4",
   "description": "Power Platform solution documentation generator for Windows desktop.",
   "author": "Mike Hartley",
   "companyName": "Hart of the Midlands",
@@ -31,13 +31,17 @@
     "dompurify": "^3.4.14",
     "fast-xml-parser": "^5.11.0",
     "file-saver": "^2.0.5",
+    "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
     "mermaid": "^11.17.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
     "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5",
     "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
@@ -65,6 +69,9 @@
     "vite": "^8.2.1",
     "vitest": "^4.1.11",
     "wait-on": "^9.1.0"
+  },
+  "overrides": {
+    "katex": "0.18.2"
   },
   "build": {
     "afterPack": "scripts/electron-builder-after-pack.cjs",

@@ -1,0 +1,24 @@
+name: Feature or improvement
+description: Suggest an improvement to local documentation, exports, or usability.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: Please check existing issues. Do not share customer ZIPs, sensitive documents, credentials, or personal data.
+  - type: textarea
+    id: need
+    attributes:
+      label: What are you trying to achieve?
+      description: Explain the task and what makes it difficult today.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: What would help?
+      description: Describe the improvement and any alternatives or workarounds.
+  - type: textarea
+    id: impact
+    attributes:
+      label: Who would benefit?
+      description: Include accessibility considerations or a safe example where helpful.

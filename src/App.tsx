@@ -22,12 +22,12 @@
 
 import { useState, useCallback, useEffect, useRef, type ChangeEvent } from 'react';
 import { saveAs } from 'file-saver';
-import JSZip from 'jszip';
 import { DropZone }          from './components/ui/DropZone';
 import { ProgressBar }       from './components/ui/ProgressBar';
 import { MarkdownViewer }    from './components/ui/MarkdownViewer';
 import { SolutionSidebar }   from './components/SolutionSidebar';
 import { ThemeToggle }       from './components/ui/ThemeToggle';
+import { HeaderDropdown } from './components/ui/HeaderDropdown';
 import { UpdateChecker }     from './components/ui/UpdateChecker';
 import { parseSolutionZip }  from './parser/solutionParser';
 import {
@@ -36,13 +36,19 @@ import {
   generateMarkdown,
   generateConsolidatedMarkdown,
   consolidateSolutions,
+  fillSolutionGapsFromPeerSolutions,
   splitMarkdownForDiagramCompanion,
+  splitMarkdownByCategory,
+  generateDiagnosticsMarkdown,
+  generateDependencyReportMarkdown,
   type DocumentationSettings,
   type DocumentContext,
   type MermaidPaletteSettings,
 } from './generator/markdownGenerator';
 import type { ParsedSolution } from './types/solution';
+import { downloadDocument, downloadDocumentBatch, type ExportFormat, type ExportDocument } from './utils/documentExport';
 import appIcon from './assets/app-icon.svg';
+import packageJson from '../package.json';
 import styles from './App.module.css';
 
 // ---------------------------------------------------------------------------
@@ -64,6 +70,8 @@ interface SolutionResult {
   isConsolidated?: boolean;
   isDiagramCompanion?: boolean;
   isImportedMarkdown?: boolean;
+  isReport?: boolean;
+  reportKind?: 'summary' | 'diagnostics' | 'dependencies';
 }
 
 type ErdMode = 'compact' | 'detailed-relationships';
@@ -115,6 +123,10 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
   const palette = settings?.mermaidPalette;
 
   return {
+    includeDiagrams: settings?.includeDiagrams ?? true,
+    createConsolidatedDocument: settings?.createConsolidatedDocument ?? true,
+    generateMissingDependencies: settings?.generateMissingDependencies ?? false,
+    mermaidColourTheme: settings?.mermaidColourTheme ?? 'neutral',
     detailLevel: settings?.detailLevel === 'summary' ? 'summary' : 'detailed',
     scope: {
       flows: settings?.scope?.flows ?? DEFAULT_DOCUMENTATION_SETTINGS.scope.flows,
@@ -338,12 +350,22 @@ function buildConsolidatedResult(
   documentContext: DocumentContext,
   documentationSettings: DocumentationSettings,
 ): SolutionResult[] {
+  if (documentationSettings.createConsolidatedDocument === false) return [];
   const solutions = results.map((r) => r.solution);
-  const markdown = generateConsolidatedMarkdown(solutions, { documentContext, documentationSettings });
   const aggregated: ParsedSolution = consolidateSolutions(solutions);
+  aggregated.metadata.displayName = 'All Selected Solutions';
+  const markdown = generateMarkdown(aggregated, { erdMode: _erdMode, documentContext, documentationSettings });
+  const summary: SolutionResult = {
+    solution: aggregated,
+    markdown: generateConsolidatedMarkdown(solutions, { documentContext, documentationSettings }),
+    fileName: 'Consolidated Solution Summary.md',
+    isConsolidated: true,
+    isReport: true,
+    reportKind: 'summary',
+  };
 
-  if (!documentationSettings.separateDiagramsDocument) {
-    return [{
+  if (documentationSettings.includeDiagrams === false || !documentationSettings.separateDiagramsDocument) {
+    return [summary, {
       solution: aggregated,
       markdown,
       fileName: markdownFileNameForSolution(aggregated, false),
@@ -352,7 +374,7 @@ function buildConsolidatedResult(
   }
 
   const { mainMarkdown, companionMarkdown } = splitMarkdownForDiagramCompanion(markdown);
-  const items: SolutionResult[] = [{
+  const items: SolutionResult[] = [summary, {
     solution: aggregated,
     markdown: mainMarkdown,
     fileName: markdownFileNameForSolution(aggregated, false),
@@ -378,19 +400,21 @@ function buildConsolidatedResult(
   return items;
 }
 
-function rebuildResults(
+export function rebuildResults(
   results: SolutionResult[],
   erdMode: ErdMode,
   documentContext: DocumentContext,
   documentationSettings: DocumentationSettings,
 ): SolutionResult[] {
   const importedMarkdownResults = results.filter((entry) => entry.isImportedMarkdown);
+  const sourceResults = results.filter((entry) => !entry.isConsolidated && !entry.isDiagramCompanion && !entry.isImportedMarkdown && !entry.isReport);
 
   const base = sortSolutionResults(results
-    .filter((entry) => !entry.isConsolidated && !entry.isDiagramCompanion && !entry.isImportedMarkdown)
+    .filter((entry) => !entry.isConsolidated && !entry.isDiagramCompanion && !entry.isImportedMarkdown && !entry.isReport)
     .flatMap((entry) => {
+      entry = { ...entry, solution: fillSolutionGapsFromPeerSolutions(entry.solution, sourceResults.filter((peer) => peer !== entry).map((peer) => peer.solution)) };
       const markdown = generateMarkdown(entry.solution, { erdMode, documentContext, documentationSettings });
-      if (!documentationSettings.separateDiagramsDocument) {
+      if (!documentationSettings.separateDiagramsDocument || documentationSettings.includeDiagrams === false) {
         return [{
           ...entry,
           markdown,
@@ -426,11 +450,23 @@ function rebuildResults(
       return items;
     }));
 
-  if (base.length > 1) {
-    return [...buildConsolidatedResult(base, erdMode, documentContext, documentationSettings), ...base, ...importedMarkdownResults];
-  }
-
-  return [...base, ...importedMarkdownResults];
+  const primary = base.filter((entry) => !entry.isDiagramCompanion);
+  const combined = primary.length > 1 ? buildConsolidatedResult(primary, erdMode, documentContext, documentationSettings) : [];
+  const reports = [...primary, ...combined.filter((entry) => !entry.isDiagramCompanion && !entry.isReport)].flatMap((entry) => {
+    const diagnostics = generateDiagnosticsMarkdown(entry.solution);
+    return [
+      ...(diagnostics ? [{ ...entry, markdown: diagnostics, fileName: entry.fileName.replace(/\.md$/i, ' - Diagnostics.md'), isReport: true, reportKind: 'diagnostics' as const }] : []),
+      ...(documentationSettings.generateMissingDependencies ? [{ ...entry, markdown: generateDependencyReportMarkdown(entry.solution), fileName: entry.fileName.replace(/\.md$/i, ' - Dependencies.md'), isReport: true, reportKind: 'dependencies' as const }] : []),
+    ];
+  });
+  return [
+    ...combined.filter((entry) => !entry.isDiagramCompanion),
+    ...base.filter((entry) => !entry.isDiagramCompanion),
+    ...combined.filter((entry) => entry.isDiagramCompanion),
+    ...base.filter((entry) => entry.isDiagramCompanion),
+    ...reports,
+    ...importedMarkdownResults,
+  ];
 }
 
 /**
@@ -501,6 +537,19 @@ export default function App() {
   const [isDiagramOptionsExpanded,  setIsDiagramOptionsExpanded]  = useState<boolean>(false);
   const [isColumnMetadataExpanded,  setIsColumnMetadataExpanded]  = useState<boolean>(true);
   const openMarkdownInputRef = useRef<HTMLInputElement>(null);
+  const operationRef = useRef<AbortController | null>(null);
+  const [batchExportFormat, setBatchExportFormat] = useState<ExportFormat | null>(null);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+
+  const regenerateResults = useCallback((nextErdMode: ErdMode, nextContext: DocumentContext, nextSettings: DocumentationSettings) => {
+    const activeFileName = results[activeIdx]?.fileName;
+    const nextResults = rebuildResults(results, nextErdMode, nextContext, nextSettings);
+    const mainFileName = activeFileName?.replace(/ - Diagrams(?=\.md$)/i, '');
+    const exactIndex = nextResults.findIndex((entry) => entry.fileName === activeFileName);
+    const mainIndex = nextResults.findIndex((entry) => entry.fileName === mainFileName);
+    setResults(nextResults);
+    setActiveIdx(Math.max(0, exactIndex >= 0 ? exactIndex : mainIndex));
+  }, [activeIdx, results]);
 
   useEffect(() => {
     let active = true;
@@ -558,11 +607,11 @@ export default function App() {
       releaseDate: nextDocumentContext.releaseDate,
     });
     setDocumentationSettings(nextDocumentationSettings);
-    setResults((prev) => rebuildResults(prev, erdMode, nextDocumentContext, nextDocumentationSettings));
+    regenerateResults(erdMode, nextDocumentContext, nextDocumentationSettings);
     if (issues.length > 0) {
       setStatusMsg(issues.join(' '));
     }
-  }, [erdMode]);
+  }, [erdMode, regenerateResults]);
 
   const handleConfigurationSelect = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     const value = event.target.value;
@@ -578,8 +627,8 @@ export default function App() {
     const nextDocumentContext = { ...documentContext, [field]: value };
     setSelectedConfigId('custom');
     setDocumentContext(nextDocumentContext);
-    setResults((prev) => rebuildResults(prev, erdMode, nextDocumentContext, documentationSettings));
-  }, [documentContext, documentationSettings, erdMode]);
+    regenerateResults(erdMode, nextDocumentContext, documentationSettings);
+  }, [documentContext, documentationSettings, erdMode, regenerateResults]);
 
   const handleSaveConfiguration = useCallback(() => {
     const name = newConfigName.trim();
@@ -662,6 +711,8 @@ export default function App() {
    */
   const handleFilesSelected = useCallback(async (files: File[]) => {
     const sortedFiles = sortFilesByName(files);
+    const controller = new AbortController();
+    operationRef.current = controller;
 
     setIsProcessing(true);
     setStatusMsg(`Processing ${sortedFiles.length} file${sortedFiles.length > 1 ? 's' : ''}…`);
@@ -676,6 +727,7 @@ export default function App() {
     const newResults: SolutionResult[] = [];
 
     for (let i = 0; i < sortedFiles.length; i++) {
+      if (controller.signal.aborted) break;
       const file = sortedFiles[i];
 
       try {
@@ -684,7 +736,7 @@ export default function App() {
         const solution = await parseSolutionZip(file, (pct) => {
           // Update progress for this specific file
           updateProcessingEntry(i, (entry) => ({ ...entry, progress: pct }));
-        });
+        }, controller.signal);
 
         setStatusMsg(`Generating documentation for ${file.name}…`);
         const markdown = generateMarkdown(solution, { erdMode, documentContext, documentationSettings });
@@ -713,6 +765,7 @@ export default function App() {
         // Mark as complete
         updateProcessingEntry(i, (entry) => ({ ...entry, progress: 100 }));
       } catch (err: unknown) {
+        if (controller.signal.aborted) break;
         const msg = (err as Error).message ?? 'Unknown error';
         updateProcessingEntry(i, (entry) => ({ ...entry, progress: 0, error: msg }));
         // Continue with remaining files rather than aborting
@@ -720,17 +773,14 @@ export default function App() {
     }
 
     if (newResults.length > 0) {
-      const existingBase = results.filter((r) => !r.isConsolidated && !r.isDiagramCompanion && !r.isImportedMarkdown);
+      const existingBase = results.filter((r) => !r.isConsolidated && !r.isDiagramCompanion && !r.isImportedMarkdown && !r.isReport);
       const existingImported = results.filter((r) => r.isImportedMarkdown);
       const mergedBase = sortSolutionResults([...existingBase, ...newResults]);
-      const generatedResults = mergedBase.length > 1
-        ? [...buildConsolidatedResult(mergedBase, erdMode, documentContext, documentationSettings), ...mergedBase]
-        : mergedBase;
-      const nextResults = [...generatedResults, ...existingImported];
+      const nextResults = rebuildResults([...mergedBase, ...existingImported], erdMode, documentContext, documentationSettings);
 
       setResults(nextResults);
       setActiveIdx(nextResults.length > 1 && nextResults[0].isConsolidated ? 0 : Math.max(0, nextResults.length - 1));
-      const count  = newResults.length;
+      const count  = newResults.filter((entry) => !entry.isDiagramCompanion).length;
       const failed = sortedFiles.length - count;
       setStatusMsg(
         failed > 0
@@ -742,6 +792,8 @@ export default function App() {
     }
 
     setIsProcessing(false);
+    operationRef.current = null;
+    if (controller.signal.aborted) setStatusMsg('Processing cancelled. Completed documents have been retained.');
     // Clear progress indicators after a brief delay
     setTimeout(() => setProcessing([]), 1500);
   }, [results, erdMode, documentContext, documentationSettings, updateProcessingEntry]);
@@ -773,13 +825,9 @@ export default function App() {
       });
     }
 
-    const existingGeneratedBase = results.filter((r) => !r.isConsolidated && !r.isDiagramCompanion && !r.isImportedMarkdown);
+    const existingGeneratedBase = results.filter((r) => !r.isConsolidated && !r.isDiagramCompanion && !r.isImportedMarkdown && !r.isReport);
     const existingImported = results.filter((r) => r.isImportedMarkdown);
-    const generatedResults = existingGeneratedBase.length > 1
-      ? [...buildConsolidatedResult(existingGeneratedBase, erdMode, documentContext, documentationSettings), ...existingGeneratedBase]
-      : existingGeneratedBase;
-
-    const nextResults = [...generatedResults, ...existingImported, ...importedResults];
+    const nextResults = rebuildResults([...existingGeneratedBase, ...existingImported, ...importedResults], erdMode, documentContext, documentationSettings);
     setResults(nextResults);
     setActiveIdx(Math.max(0, nextResults.length - importedResults.length));
     setStatusMsg(`Loaded ${importedResults.length} Markdown document${importedResults.length > 1 ? 's' : ''}.`);
@@ -788,21 +836,21 @@ export default function App() {
   const handleToggleErdMode = useCallback(() => {
     const nextMode: ErdMode = erdMode === 'detailed-relationships' ? 'compact' : 'detailed-relationships';
 
-    setResults((prev) => rebuildResults(prev, nextMode, documentContext, documentationSettings));
+    regenerateResults(nextMode, documentContext, documentationSettings);
 
     setErdMode(nextMode);
     setStatusMsg(`ERD mode switched to ${nextMode === 'compact' ? 'Compact' : 'Detailed-Relationships'}.`);
-  }, [erdMode, documentContext, documentationSettings]);
+  }, [erdMode, documentContext, documentationSettings, regenerateResults]);
 
   const applyDocumentationSettings = useCallback((nextSettings: DocumentationSettings) => {
     const { normalized, issues } = validateDocumentationSettings(nextSettings);
     setSelectedConfigId('custom');
     setDocumentationSettings(normalized);
-    setResults((prev) => rebuildResults(prev, erdMode, documentContext, normalized));
+    regenerateResults(erdMode, documentContext, normalized);
     if (issues.length > 0) {
       setStatusMsg(issues.join(' '));
     }
-  }, [documentContext, erdMode]);
+  }, [documentContext, erdMode, regenerateResults]);
 
   const handleDetailLevelChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     const nextDetailLevel = event.target.value === 'summary' ? 'summary' : 'detailed';
@@ -866,6 +914,7 @@ export default function App() {
         ...documentationSettings.mermaidPalette,
         [key]: value,
       },
+      mermaidColourTheme: 'base',
     };
     applyDocumentationSettings(nextSettings);
   }, [applyDocumentationSettings, documentationSettings]);
@@ -921,19 +970,46 @@ export default function App() {
   /**
    * Exports all generated Markdown documents as a single ZIP archive.
    */
-  const handleExportAll = useCallback(async () => {
-    if (results.length === 0) return;
+  const handleExportFormat = useCallback(async (format: ExportFormat) => {
+    const result = results[activeIdx];
+    if (!result || batchExportFormat) return;
+    const controller = new AbortController();
+    operationRef.current = controller;
+    setBatchExportFormat(format);
+    setStatusMsg(`Preparing ${format.toUpperCase()} export...`);
+    try {
+      await downloadDocument(result, format, documentContext, documentationSettings, controller.signal, setStatusMsg);
+      setStatusMsg(`${format.toUpperCase()} exported successfully.`);
+    } catch (error) {
+      setStatusMsg(controller.signal.aborted ? 'Export cancelled.' : `Export failed: ${(error as Error).message}`);
+    } finally {
+      operationRef.current = null;
+      setBatchExportFormat(null);
+    }
+  }, [activeIdx, batchExportFormat, documentContext, documentationSettings, results]);
 
-    const zip = new JSZip();
-    results.forEach((result, idx) => {
-      const fallbackName = `Solution ${idx + 1}${result.isDiagramCompanion ? ' - Diagrams' : ''}.md`;
-      const fileName = result.fileName?.trim() || fallbackName;
-      zip.file(fileName, result.markdown);
-    });
-
-    const blob = await zip.generateAsync({ type: 'blob' });
-    saveAs(blob, 'pp-md-markdown-documents.zip');
-  }, [results]);
+  const handleBatchExport = useCallback(async (format: ExportFormat, byCategory = false) => {
+    if (batchExportFormat || results.length === 0) return;
+    const controller = new AbortController();
+    operationRef.current = controller;
+    setBatchExportFormat(format);
+    try {
+      const documents: ExportDocument[] = byCategory
+        ? results.filter((result) => !result.isReport).flatMap((result) => splitMarkdownByCategory(result.markdown).map((category) => ({
+          ...result, markdown: category.markdown, fileName: `${category.key}.md`,
+          folder: `${result.isConsolidated ? 'Consolidated' : 'Solutions'}/${result.fileName.replace(/\.md$/i, '')}`,
+        })))
+        : format === 'xlsx' ? results.filter((result) => !result.isDiagramCompanion && !result.isImportedMarkdown) : results;
+      await downloadDocumentBatch(documents, format, documentContext, documentationSettings, controller.signal,
+        (completed, total) => setStatusMsg(`Exporting ${format.toUpperCase()}: ${completed} of ${total} documents.`));
+      setStatusMsg(`Exported ${documents.length} ${format.toUpperCase()} documents.`);
+    } catch (error) {
+      setStatusMsg(controller.signal.aborted ? 'Export cancelled.' : `Export failed: ${(error as Error).message}`);
+    } finally {
+      operationRef.current = null;
+      setBatchExportFormat(null);
+    }
+  }, [batchExportFormat, documentContext, documentationSettings, results]);
 
   // ── Reset ─────────────────────────────────────────────────────────────────
 
@@ -941,11 +1017,12 @@ export default function App() {
    * Clears all results and returns to the welcome/drop zone screen.
    */
   const handleReset = useCallback(() => {
+    if (results.length > 0 && !window.confirm('Discard generated documents and start again?')) return;
     setResults([]);
     setActiveIdx(0);
     setProcessing([]);
     setStatusMsg('');
-  }, []);
+  }, [results.length]);
 
   // ── Derived state ─────────────────────────────────────────────────────────
 
@@ -971,12 +1048,13 @@ export default function App() {
           {/* Logo / app name */}
           <div className={styles.brand}>
             <img src={appIcon} className={styles.brandIcon} alt="" aria-hidden="true" />
-            <h1 className={styles.brandName}>PP-MD</h1>
+            <h1 className={styles.brandName}>PP-MD <span className={styles.brandVersion}>v{packageJson.version}</span></h1>
             <span className={styles.brandTagline}>Power Platform Solution Documentation</span>
           </div>
 
           {/* Header actions */}
-          <div className={styles.headerActions}>
+          <button type="button" className={`${styles.headerBtn} ${styles.menuToggle}`} aria-label={headerMenuOpen ? 'Close toolbar menu' : 'Open toolbar menu'} aria-expanded={headerMenuOpen} aria-controls="header-actions" onClick={() => setHeaderMenuOpen((open) => !open)}>Menu</button>
+          <div id="header-actions" className={`${styles.headerActions} ${headerMenuOpen ? styles.headerMenuOpen : ''}`}>
             <input
               ref={openMarkdownInputRef}
               type="file"
@@ -1010,14 +1088,30 @@ export default function App() {
             )}
 
             {hasResults && !isProcessing && (
-              <button
-                type="button"
-                className={styles.headerBtn}
-                onClick={handleExportAll}
-                aria-label="Download all generated Markdown files"
-              >
-                ⬇ All .md
-              </button>
+              <HeaderDropdown label="Export All" triggerClassName={styles.headerBtn} panelClassName={styles.headerMenuItems}>
+                  <button type="button" disabled={batchExportFormat !== null} onClick={() => void handleBatchExport('md')}>All Markdown (ZIP)</button>
+                  <button type="button" disabled={batchExportFormat !== null} onClick={() => void handleBatchExport('md', true)}>By Category (ZIP)</button>
+                  {(['html', 'pdf', 'xlsx'] as const).map((format) => (
+                    <button key={format} type="button" disabled={batchExportFormat !== null} onClick={() => void handleBatchExport(format)}>
+                      All {format === 'xlsx' ? 'Excel' : format.toUpperCase()} (ZIP)
+                    </button>
+                  ))}
+              </HeaderDropdown>
+            )}
+
+            {hasResults && !isProcessing && (
+              <HeaderDropdown label="Options" triggerClassName={styles.headerBtn} panelClassName={styles.headerMenuItems}>
+                  {([
+                    ['createConsolidatedDocument', 'Create consolidated document'],
+                    ['generateMissingDependencies', 'Generate missing dependencies'],
+                    ['includeDiagrams', 'Include diagrams'],
+                    ['separateDiagramsDocument', 'Separate diagrams document'],
+                  ] as const).map(([key, label]) => (
+                    <label className={styles.menuOption} key={key}>
+                      <input type="checkbox" disabled={batchExportFormat !== null} checked={Boolean(documentationSettings[key])} onChange={() => applyDocumentationSettings({ ...documentationSettings, [key]: !documentationSettings[key] })} />{label}
+                    </label>
+                  ))}
+              </HeaderDropdown>
             )}
 
             {hasResults && !isProcessing && (
@@ -1030,9 +1124,16 @@ export default function App() {
                 ＋ New
               </button>
             )}
+            <a className={styles.headerBtn} href="https://github.com/Hart365/PP-MD" target="_blank" rel="noreferrer" aria-label="PP-MD on GitHub (opens in a new tab)">GitHub</a>
             <UpdateChecker />
             <ThemeToggle />
           </div>
+          {(isProcessing || batchExportFormat !== null) && (
+            <button type="button" className={`${styles.headerBtn} ${styles.cancelBtn}`} onClick={() => {
+              operationRef.current?.abort();
+              setStatusMsg('Cancellation requested. Stopping at the next checkpoint.');
+            }}>Cancel</button>
+          )}
         </div>
       </header>
 
@@ -1043,7 +1144,7 @@ export default function App() {
       <div
         aria-live="polite"
         aria-atomic="true"
-        className={styles.statusRegion}
+        className={statusMsg ? styles.visibleStatusRegion : styles.statusRegion}
         role="status"
       >
         {statusMsg}
@@ -1054,7 +1155,11 @@ export default function App() {
         {/* Sidebar (only when we have results) */}
         {hasResults && (
           <SolutionSidebar
-            items={results.map((r) => ({ solution: r.solution, fileName: r.fileName }))}
+            items={results.map((result) => ({
+              solution: result.solution, fileName: result.fileName,
+              group: result.isDiagramCompanion ? 'Diagrams' : result.reportKind && result.reportKind !== 'summary' ? 'Diagnostics and Dependencies' : result.isConsolidated ? 'Consolidated' : result.isReport ? 'Diagnostics and Dependencies' : 'Solutions',
+              label: result.fileName.replace(/\.md$/i, ''),
+            }))}
             activeIndex={activeIdx}
             onSelect={handleSelectResult}
             onReset={handleReset}
@@ -1080,6 +1185,23 @@ export default function App() {
               </p>
 
               <section className={styles.settingsPanels} aria-label="Documentation settings">
+                <fieldset className={styles.parityOptions}>
+                  <legend>Document Output</legend>
+                  {([
+                    ['createConsolidatedDocument', 'Create All Selected Solutions document'],
+                    ['generateMissingDependencies', 'Include missing import dependencies'],
+                    ['includeDiagrams', 'Include diagrams'],
+                  ] as const).map(([key, label]) => (
+                    <label key={key}>
+                      <input type="checkbox" checked={Boolean(documentationSettings[key])} onChange={() => applyDocumentationSettings({ ...documentationSettings, [key]: !documentationSettings[key] })} />
+                      {label}
+                    </label>
+                  ))}
+                  <label htmlFor="diagram-colour-theme">Diagram colour theme</label>
+                  <select id="diagram-colour-theme" value={documentationSettings.mermaidColourTheme} onChange={(event) => applyDocumentationSettings({ ...documentationSettings, mermaidColourTheme: event.target.value as DocumentationSettings['mermaidColourTheme'] })}>
+                    {['neutral', 'default', 'dark', 'forest', 'base'].map((theme) => <option key={theme} value={theme}>{theme}</option>)}
+                  </select>
+                </fieldset>
 
                 {/* ── Document Header Details ─────────────────────────── */}
                 <div className={styles.collapsiblePanel}>
@@ -1662,6 +1784,10 @@ export default function App() {
                   title={activeResult.solution.metadata.displayName || activeResult.solution.metadata.uniqueName}
                   fileName={activeResult.fileName}
                   onExport={handleExport}
+                  onExportHtml={() => void handleExportFormat('html')}
+                  onExportPdf={() => void handleExportFormat('pdf')}
+                  onExportExcel={activeResult.isImportedMarkdown || activeResult.isReport || activeResult.isDiagramCompanion ? undefined : () => void handleExportFormat('xlsx')}
+                  diagramTheme={documentationSettings.mermaidColourTheme}
                   onStatusMessage={setStatusMsg}
                 />
               )}

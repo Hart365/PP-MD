@@ -68,6 +68,7 @@ const textChecks = [
   ['color-text-inverse', 'color-accent-hover', 4.5],
   ['color-text-code', 'color-code-bg', 4.5],
   ['color-accent', 'color-bg', 4.5],
+  ['color-menu-highlight-text', 'color-menu-highlight-bg', 4.5],
 ];
 
 const nonTextChecks = [
@@ -77,6 +78,7 @@ const nonTextChecks = [
   ['color-dropzone-border', 'color-dropzone-bg', 3.0],
   ['color-progress-fill', 'color-progress-track', 3.0],
   ['color-sidebar-item-active', 'color-sidebar-bg', 3.0],
+  ['color-menu-highlight-bg', 'color-surface', 3.0],
 ];
 
 function evaluateTheme(name, vars) {

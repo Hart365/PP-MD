@@ -16,6 +16,34 @@
 
 import JSZip from 'jszip';
 import { XMLParser } from 'fast-xml-parser';
+import { dependencyComponentType } from '../generator/missingDependencies';
+import type { MissingDependency } from '../types/solution';
+
+export function parseManifestMissingDependencies(xml: string): MissingDependency[] {
+  const document = xmlParser.parse(xml) as Record<string, unknown>;
+  const root = (document.ImportExportXml ?? document) as Record<string, unknown>;
+  const manifest = (root.SolutionManifest ?? root) as Record<string, unknown>;
+  const missing = (manifest.MissingDependencies ?? {}) as Record<string, unknown>;
+  const nodes = missing.MissingDependency;
+  return (nodes ? (Array.isArray(nodes) ? nodes : [nodes]) : []).map((node) => {
+    const dependency = node as Record<string, unknown>;
+    const required = (dependency.Required ?? {}) as Record<string, unknown>;
+    const dependent = (dependency.Dependent ?? {}) as Record<string, unknown>;
+    const name = (item: Record<string, unknown>) => xmlStr(item, '@_schemaName') || xmlStr(item, '@_displayName') || xmlStr(item, '@_id');
+    const type = (item: Record<string, unknown>) => dependencyComponentType(Number(xmlStr(item, '@_type')));
+    const parent = xmlStr(dependent, '@_parentSchemaName');
+    return {
+      dependentName: parent ? `${parent}.${name(dependent)}` : name(dependent),
+      dependentType: type(dependent),
+      requiredName: name(required),
+      requiredType: type(required),
+      requiredParent: xmlStr(required, '@_parentSchemaName') || undefined,
+      dependentId: xmlStr(dependent, '@_id') || undefined,
+      requiredId: xmlStr(required, '@_id') || undefined,
+      tableLogicalNames: parent ? [parent] : type(dependent) === 'Table' ? [name(dependent)] : [],
+    };
+  }).filter((dependency) => dependency.requiredName && dependency.dependentName);
+}
 
 import type {
   ParsedSolution,
@@ -1524,6 +1552,28 @@ function parseEntityNode(
     keys:                 [],
     entitySetName,
     primaryAttributeName,
+    metadataSource: 'local',
+    tableType: isActivity ? 'Activity' : 'Standard',
+    isDuplicateDetectionEnabled: parseBooleanMetadata(entity, ['IsDuplicateCheckSupported', 'IsDuplicateDetectionEnabled']),
+    isAuditEnabled: parseBooleanMetadata(entity, ['IsAuditEnabled']),
+    isQuickCreateEnabled: parseBooleanMetadata(entity, ['IsQuickCreateEnabled']),
+    entityHelpUrlEnabled: parseBooleanMetadata(entity, ['EntityHelpUrlEnabled']),
+    entityHelpUrl: xmlStr(entity, 'EntityHelpUrl') || undefined,
+    isActivityParty: parseBooleanMetadata(entity, ['IsActivityParty']),
+    isOneNoteIntegrationEnabled: parseBooleanMetadata(entity, ['IsOneNoteIntegrationEnabled']),
+    isMailMergeEnabled: parseBooleanMetadata(entity, ['IsMailMergeEnabled']),
+    isDocumentManagementEnabled: parseBooleanMetadata(entity, ['IsDocumentManagementEnabled']),
+    isConnectionsEnabled: parseBooleanMetadata(entity, ['IsConnectionsEnabled']),
+    autoCreateAccessTeams: parseBooleanMetadata(entity, ['AutoCreateAccessTeams']),
+    syncToExternalSearchIndex: parseBooleanMetadata(entity, ['SyncToExternalSearchIndex']),
+    isAvailableOffline: parseBooleanMetadata(entity, ['IsAvailableOffline', 'IsOfflineInMobileClient']),
+    autoRouteToOwnerQueue: parseBooleanMetadata(entity, ['AutoRouteToOwnerQueue']),
+    hasNotes: parseBooleanMetadata(entity, ['HasNotes']),
+    hasActivities: parseBooleanMetadata(entity, ['HasActivities']),
+    hasFeedback: parseBooleanMetadata(entity, ['HasFeedback']),
+    hasEmailAddresses: parseBooleanMetadata(entity, ['HasEmailAddresses']),
+    isValidForQueue: parseBooleanMetadata(entity, ['IsValidForQueue']),
+    isRetentionEnabled: parseBooleanMetadata(entity, ['IsRetentionEnabled']),
   };
 }
 
@@ -2455,9 +2505,13 @@ function parseWebResourceNode(node: Record<string, unknown>): WebResourceDefinit
 export async function parseSolutionZip(
   file: File | Blob,
   onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
 ): Promise<ParsedSolution> {
   const warnings: string[] = [];
-  const report = (pct: number) => onProgress?.(pct);
+  const report = (pct: number) => {
+    signal?.throwIfAborted();
+    onProgress?.(pct);
+  };
 
   // ── Step 1: Open the ZIP ────────────────────────────────────────────────
   report(5);
@@ -4033,6 +4087,9 @@ export async function parseSolutionZip(
   // ── Step 7: Assemble and return ──────────────────────────────────────────
   const parsed: ParsedSolution = {
     metadata,
+    missingDependencies: parseManifestMissingDependencies(solutionXml).map((dependency) => ({
+      ...dependency, solutionUniqueName: metadata.uniqueName,
+    })),
     entities:               entities.filter((e) => !!e.logicalName),
     optionSets,
     forms,

@@ -8,6 +8,7 @@ import {
   AppType,
   AttributeType,
   ProcessCategory,
+  WebResourceType,
   type ParsedSolution,
 } from '../types/solution';
 import { readFileSync } from 'node:fs';
@@ -67,6 +68,169 @@ const sampleSolution: ParsedSolution = {
   pluginAssemblies: [],
   warnings: [],
 };
+
+describe('documentation option output matrix', () => {
+  const solution: ParsedSolution = {
+    ...sampleSolution,
+    entities: [{ ...sampleSolution.entities[0], attributes: [
+      { name: 'new_onform', displayName: 'On Form', type: AttributeType.String, required: true, isCustom: true, isManaged: false, description: 'Column description', isAuditEnabled: true, isSecured: true, isValidForAdvancedFind: true },
+      { name: 'new_choice', type: AttributeType.OptionSet, required: false, isCustom: true, isManaged: true },
+      { name: 'system_default', type: AttributeType.String, required: false, isCustom: false, isManaged: true },
+      { name: 'new_virtual', type: AttributeType.Virtual, required: false, isCustom: true, isManaged: false },
+    ] }],
+    forms: [{ name: 'Main', entityLogicalName: 'new_project', formType: 'Main', fields: [{ attributeName: 'new_onform' }] }],
+    processes: [{ name: 'AUTOMATION_SENTINEL', uniqueName: 'audit_flow', category: ProcessCategory.PowerAutomateFlow, primaryEntity: 'new_project', steps: [] }],
+    apps: [{ name: 'APP_SENTINEL', uniqueName: 'audit_app', appType: AppType.ModelDriven, entities: ['new_project'] }],
+    securityRoles: [{ name: 'ROLE_SENTINEL', privileges: [{ privilegeName: 'prvReadnew_project', depth: 4 }] }],
+    connectionReferences: [{ name: 'CONNECTION_SENTINEL', connectorId: 'shared_dataverse' }],
+    pluginAssemblies: [{ name: 'PLUGIN_SENTINEL', assemblyName: 'PLUGIN_SENTINEL', isolationMode: 2, steps: [] }],
+    reports: [{ name: 'REPORT_SENTINEL', relatedEntities: ['new_project'] }],
+    webResources: [{ name: 'WEB_SENTINEL', schemaName: 'audit_script', resourceType: WebResourceType.JavaScript }],
+    desktopFlows: [{ name: 'DESKTOP_SENTINEL', sourcePath: 'desktop.json' }],
+    dataflows: [{ name: 'DATAFLOW_SENTINEL', sourcePath: 'dataflow.json' }],
+    customApis: [{ name: 'API_SENTINEL', sourcePath: 'api.xml' }],
+    offlineProfiles: [{ name: 'OFFLINE_SENTINEL', sourcePath: 'offline.xml' }],
+    agents: [{ name: 'AGENT_SENTINEL', sourcePath: 'agent.yaml' }],
+    aiModels: [{ name: 'AI_SENTINEL', sourcePath: 'ai.json' }],
+  };
+
+  const scopeCases = [
+    ['flows', ['Processes & Automation'], ['AUTOMATION_SENTINEL']],
+    ['apps', ['Power Apps'], ['APP_SENTINEL']],
+    ['security', ['Security Roles'], ['ROLE_SENTINEL']],
+    ['integration', ['Connection References', 'Connections'], ['CONNECTION_SENTINEL']],
+    ['plugins', ['Plugin Assemblies & Steps'], ['PLUGIN_SENTINEL']],
+    ['reports', ['Reports & Dashboards'], ['REPORT_SENTINEL']],
+    ['webResources', ['Web Resources'], ['WEB_SENTINEL']],
+    ['desktopFlows', ['Desktop Flows', 'Dataflows'], ['DESKTOP_SENTINEL', 'DATAFLOW_SENTINEL']],
+    ['customApis', ['Custom APIs', 'Offline Profiles'], ['API_SENTINEL', 'OFFLINE_SENTINEL']],
+    ['copilotAgents', ['Copilot Studio Agents', 'AI Models'], ['AGENT_SENTINEL', 'AI_SENTINEL']],
+  ] as const;
+  for (const [key, headings, markers] of scopeCases) {
+    it(`honours the ${key} scope checkbox throughout output`, () => {
+      const enabled = generateMarkdown(solution);
+      const disabled = generateMarkdown(solution, { documentationSettings: {
+        ...DEFAULT_DOCUMENTATION_SETTINGS, scope: { ...DEFAULT_DOCUMENTATION_SETTINGS.scope, [key]: false },
+      } });
+      headings.forEach((title) => {
+        expect(enabled).toContain(`## ${title}`);
+        expect(disabled).not.toContain(`## ${title}`);
+      });
+      markers.forEach((marker) => {
+        expect(enabled).toContain(marker);
+        expect(disabled).not.toContain(marker);
+      });
+    });
+  }
+
+  const columnCases = [
+    ['includeTypeColumn', 'Type'], ['includeRequiredLevelInfo', 'Required'],
+    ['includeCustomColumn', 'Custom'], ['includeAuditInfo', 'Audited'],
+    ['includeFieldSecurityFlags', 'Field Security'], ['includeValidForAdvancedFindInfo', 'Advanced Find'],
+    ['includeMetadataDiagnosticInfo', 'Metadata Source'], ['includeNotesColumn', 'Notes'],
+    ['includeDescriptionColumn', 'Description'],
+  ] as const;
+  for (const [key, title] of columnCases) {
+    it(`honours the ${title} column checkbox`, () => {
+      for (const enabled of [true, false]) {
+        const markdown = generateMarkdown(solution, { documentationSettings: {
+          ...DEFAULT_DOCUMENTATION_SETTINGS, metadata: { ...DEFAULT_DOCUMENTATION_SETTINGS.metadata, [key]: enabled },
+        } });
+        const header = markdown.split('#### Columns')[1]?.split('\n').find((line) => line.startsWith('| Display Name')) ?? '';
+        expect(header.split('|').map((cell) => cell.trim()).includes(title)).toBe(enabled);
+      }
+    });
+  }
+
+  const selectionCases = [
+    ['all', ['new_onform', 'new_choice', 'system_default', 'new_virtual']],
+    ['custom-only', ['new_onform', 'new_choice', 'new_virtual']],
+    ['attributes-on-form', ['new_onform']],
+    ['attributes-not-on-form', ['new_choice', 'system_default', 'new_virtual']],
+    ['option-set-focused', ['new_choice']],
+    ['unmanaged-only', ['new_onform', 'new_virtual']],
+  ] as const;
+  for (const [mode, expected] of selectionCases) {
+    it(`outputs the expected columns in ${mode} mode`, () => {
+      const markdown = generateMarkdown(solution, { documentationSettings: {
+        ...DEFAULT_DOCUMENTATION_SETTINGS, metadata: { ...DEFAULT_DOCUMENTATION_SETTINGS.metadata, attributeSelectionMode: mode },
+      } });
+      const columns = markdown.split('#### Columns')[1]?.split('####')[0] ?? '';
+      const names = solution.entities[0].attributes.filter((attribute) => columns.includes(`\`${attribute.name}\``)).map((attribute) => attribute.name);
+      expect(names).toEqual(expected);
+    });
+  }
+
+  it('honours default-column and virtual-column inclusion independently', () => {
+    for (const includeDefaultColumns of [true, false]) {
+      for (const excludeVirtualAttributes of [true, false]) {
+        const markdown = generateMarkdown(solution, { documentationSettings: {
+          ...DEFAULT_DOCUMENTATION_SETTINGS, metadata: { ...DEFAULT_DOCUMENTATION_SETTINGS.metadata, includeDefaultColumns, excludeVirtualAttributes },
+        } });
+        const columns = markdown.split('#### Columns')[1]?.split('####')[0] ?? '';
+        expect(columns.includes('`system_default`')).toBe(includeDefaultColumns);
+        expect(columns.includes('`new_virtual`')).toBe(!excludeVirtualAttributes);
+      }
+    }
+  });
+
+  it('does not leave diagram headings or links when diagrams are excluded', () => {
+    const markdown = generateMarkdown(solution, { documentationSettings: { ...DEFAULT_DOCUMENTATION_SETTINGS, includeDiagrams: false } });
+    expect(markdown).not.toContain('```mermaid');
+    expect(markdown).not.toContain('## Entity Relationship Diagram');
+    expect(markdown).not.toContain('](#entity-relationship-diagram)');
+    expect(markdown).not.toContain('## Solution Component Relationship Graph');
+  });
+
+  it('uses the selected ERD detail mode without changing the table documentation', () => {
+    const compact = generateMarkdown(solution, { erdMode: 'compact' });
+    const detailed = generateMarkdown(solution, { erdMode: 'detailed-relationships' });
+    expect(compact).toContain('#### Columns');
+    expect(detailed).toContain('#### Columns');
+    const erd = (markdown: string) => markdown.split('## Entity Relationship Diagram')[1]?.split('## Tables & Columns')[0] ?? '';
+    expect(erd(compact)).not.toContain('logical_name PK');
+    expect(erd(detailed)).toContain('logical_name PK');
+  });
+
+  it('allows selecting neutral again after a custom palette', () => {
+    const markdown = generateMarkdown(solution, { documentationSettings: {
+      ...DEFAULT_DOCUMENTATION_SETTINGS, mermaidColourTheme: 'neutral',
+      mermaidPalette: { sourceOne: '#123456', sourceTwo: '#654321', sourceThree: '#abcdef', sourceFour: '#fedcba' },
+    } });
+    markdown.split('\n').filter((line) => line.startsWith('%%{ init:')).forEach((line) => expect(line).toContain("'theme': 'neutral'"));
+  });
+
+  it('uses all four custom diagram colour controls', () => {
+    const markdown = generateMarkdown({
+      ...solution,
+      views: [{ name: 'Palette View', entityLogicalName: 'new_project', viewType: 'Public', columns: [] }],
+      dashboards: [{ name: 'Palette Dashboard', entityLogicalName: 'new_project', dashboardType: 'System', components: [] }],
+    }, { documentationSettings: {
+      ...DEFAULT_DOCUMENTATION_SETTINGS, mermaidColourTheme: 'base',
+      mermaidPalette: { sourceOne: '#123456', sourceTwo: '#654321', sourceThree: '#abcdef', sourceFour: '#fedcba' },
+    } });
+    for (const colour of ['#123456', '#654321', '#abcdef', '#fedcba']) expect(markdown).toContain(`stroke:${colour}`);
+  });
+
+  for (const theme of ['neutral', 'default', 'dark', 'forest', 'base'] as const) {
+    it(`uses the selected ${theme} theme in exported diagrams`, () => {
+      const markdown = generateMarkdown(solution, { documentationSettings: { ...DEFAULT_DOCUMENTATION_SETTINGS, mermaidColourTheme: theme } });
+      const initializers = markdown.split('\n').filter((line) => line.startsWith('%%{ init:'));
+      expect(initializers.length).toBeGreaterThan(0);
+      initializers.forEach((line) => expect(line).toContain(`'theme': '${theme}'`));
+    });
+  }
+
+  it('honours disabled scope in consolidated summaries', () => {
+    const summary = generateConsolidatedMarkdown([solution, { ...solution, metadata: { ...solution.metadata, uniqueName: 'other' } }], {
+      documentationSettings: { ...DEFAULT_DOCUMENTATION_SETTINGS, scope: { ...DEFAULT_DOCUMENTATION_SETTINGS.scope, apps: false, flows: false } },
+    });
+    expect(summary).not.toContain('APP_SENTINEL');
+    expect(summary).not.toContain('AUTOMATION_SENTINEL');
+    expect(summary).not.toContain('## Apps Across Solutions');
+    expect(summary).not.toContain('## Processes Across Solutions');
+  });
+});
 
 describe('generateMarkdown', () => {
   it('matches the golden markdown baseline', () => {
@@ -693,7 +857,7 @@ describe('generateMarkdown', () => {
       },
     );
 
-    expect(markdown).toContain('%%{ init: { \'theme\': \'base\'' );
+    expect(markdown).toContain('%%{ init: { \'theme\': \'neutral\'' );
     expect(markdown).toContain('stroke:#123456,stroke-width:3px;stroke-linecap:round');
     expect(markdown).toContain('stroke:#654321,stroke-width:3px;stroke-linecap:round');
     expect(markdown).toContain('stroke:#abcdef,stroke-width:3px;stroke-linecap:round');

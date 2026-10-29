@@ -1,3 +1,19 @@
+## Local-File Parity Modules in 1.3.0
+
+Version 1.3.3 removes implicit splitting from result assembly. `rebuildResults` respects explicit inclusion/separation settings, and a shared regeneration callback preserves the current filename or returns from a removed companion to its main document. Sidebar groups retain original result indexes. `applyDocumentationScope`, `selectDocumentationAttributes`, and `filterDocumentationPrivileges` align Markdown and workbook option behavior.
+
+- `parser/solutionParser.ts`: optional AbortSignal checkpoints, ZIP table-property metadata and authoritative MissingDependencies parsing.
+- `generator/localDocumentation.ts` and `missingDependencies.ts`: separate diagnostics and per-solution import prerequisite reporting.
+- `generator/documentSplitter.ts`: category generation using Markdown AST heading boundaries and self-contained contents links.
+- `generator/tableMetadata.ts`: shared table-property blocks for Markdown and Excel, retaining unknown/unavailable states.
+- `api/documentRendering.tsx`: sanitised static HTML, Mermaid SVG generation and bounded rasterisation with error fallback.
+- `api/pdfExporter.ts`: searchable paginated PDF drawing with browser-yield timer fallback.
+- `api/excelExporter.ts`: styled inventories, per-table worksheets, navigation, wrapped properties and optional table-scoped prerequisites.
+- `utils/documentExport.ts`: single and batch downloads, collision-safe archive paths and cancellation before download.
+- `components/ui/MermaidRenderer.tsx`: low-priority diagram scheduling paused during scrolling; `MermaidDiagram.tsx` adapts its progress events to PP-MD.
+
+Connected environment appendices and collectors are deliberately absent. Existing Electron tagged-PDF and imported-Markdown table exports remain available.
+
 # PP-MD Low-Level Design
 
 ## Purpose

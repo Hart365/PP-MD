@@ -2,6 +2,8 @@
 
 PP-MD is a Windows desktop application that turns Microsoft Power Platform solution ZIP exports into structured, portable Markdown documentation with Mermaid diagrams. No server, no cloud upload, and no licence key required.
 
+Version 1.3.0 brings the local-file documentation and export capabilities of PP-MD-PPTB-Edition to the standalone desktop app. Dataverse-connected collection, environment appendices, and ToolBox host APIs are intentionally excluded. See the [parity guide](docs/local-file-parity.md), [Accessibility statement](ACCESSIBILITY.MD), [contributing guide](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md), and [security policy](SECURITY.md).
+
 ---
 
 ## Table of Contents
@@ -65,7 +67,8 @@ Multiple solutions can be loaded at once and reviewed across all loaded solution
 | Integration | Connection references (connector type) and environment variables |
 | Reports & Dashboards | Native reports and dashboards |
 | Plugins | Plugin assemblies and SDK message processing steps (stage, mode, message, entity) |
-| Warnings | Parser warnings for components that could not be fully parsed |
+| Diagnostics | Separate documents containing parser warnings and incomplete metadata issues |
+| Missing Dependencies | Optional installation prerequisites explicitly declared by each ZIP manifest |
 
 ---
 
@@ -126,21 +129,36 @@ Use **🔍 Search** in the viewer toolbar to find text within the rendered docum
 
 ### 4. Export
 
+Export actions and Options rows have full-row, high-contrast hover highlights and distinct keyboard-focus outlines in light, dark, and Windows forced-colours modes.
+
+From version 1.3.1, adjacent toolbar controls use a shared height and corner radius. **Export All** and **Options** have dropdown arrows and open non-modal popovers above the document; press Escape or click outside to dismiss them. Choosing an export closes its menu automatically.
+
 Use the single **⬇️ Export ▾** menu in the Markdown viewer toolbar to export the active document:
 
 - **Export .md**: saves the raw Markdown source.
-- **Export .pdf**: saves a rendered PDF (desktop app) with Mermaid diagrams included. Large diagrams and wide tables are optimized for print flow by switching to landscape pages and splitting oversized content where required.
-- **Export .xlsx**: extracts Markdown tables into an Excel workbook with a branded **Contents** worksheet, document header details, and per-tab links. Dataverse table/entity-related tables are grouped into shared entity worksheets.
+- **Export .html**: saves standalone sanitised HTML with embedded styles and rendered Mermaid diagrams.
+- **Export .pdf**: saves a searchable, paginated text PDF with diagrams, lists, tables, links, and readable source fallbacks.
+- **Export .xlsx**: saves a structured solution workbook with inventories, global choices, per-table column worksheets, table properties, navigation links, and optional table-scoped missing dependencies. Imported Markdown and report documents retain the Markdown-table Excel fallback.
 
-PDF export is generated through the Electron desktop shell using Chromium's tagged PDF output mode (`generateTaggedPDF`) so the exported document includes accessibility tagging and heading outline metadata for assistive technology.
+The new searchable PDF path does not claim PDF/UA conformance or complete tagging. The existing Electron tagged-PDF utility is retained for compatibility. See [Accessibility](ACCESSIBILITY.MD).
+
+Use **Export All** for Markdown, HTML, PDF, or Excel ZIP archives, or **By Category** for self-contained category documents organised under solution and consolidated folders. Excel batch archives include diagnostics and dependency reports as Markdown companions. Duplicate filenames are disambiguated rather than overwritten.
 
 ### 5. Consolidated Report
 
-When two or more solutions are loaded, a **Consolidated Summary** entry appears in the sidebar. This merges all solutions into a single report with:
+**Separate diagrams is off by default.** Diagrams remain inline in individual and consolidated documents unless **Generate companion diagrams document** (or **Options > Separate diagrams document**) is checked. Document size does not override this setting. Separate documents appear together under **Diagrams** in the sidebar. Turning **Include diagrams** off removes inline diagrams and companion documents, even if separation remains checked.
+
+When two or more solutions are loaded, the **Consolidated** sidebar section contains a complete **All Selected Solutions** document and the existing consolidated summary. The full document includes:
 
 - A combined ERD across all tables
 - Merged component sections de-duplicated by schema name
 - A solution inventory table at the top
+
+Clear **Create All Selected Solutions document** to generate individual documents only. **Options** can update output settings after generation. Optional missing-dependency reports retain each source solution's declared prerequisites; they do not infer dependencies from runtime references or test whether a target environment already satisfies them. Matching peer components can fill missing metadata without adding unrelated top-level components to an individual solution.
+
+Choose a diagram colour theme or disable diagrams. Rendering runs lazily in the background, pauses while scrolling, prioritises visible diagrams, and retains at most 100 rendered SVGs. **Cancel** remains accessible outside the narrow-screen toolbar menu and stops at the next processing/export checkpoint. Completed solution documents are retained; unfinished exports are not downloaded.
+
+Section scope, attribute selection, metadata-column visibility, and security-role filters apply to structured Excel exports as well as documentation. Summary-mode workbooks omit detailed per-table worksheets. Diagram theme choices are retained in exported Mermaid; changing a custom palette selects the base theme required for custom theme variables.
 
 ---
 

@@ -1,3 +1,9 @@
+## Version 1.3.0 Additions
+
+Portable export modules live under `src/api/`; safe single/batch archive handling is in `src/utils/documentExport.ts`. Local reports, category splitting, table properties, and declared dependency helpers live under `src/generator/`. `MermaidRenderer.tsx` owns background rendering and uses `utils/lruCache.ts`. New focused tests cover those paths alongside the existing parser, viewer, generator and export suites.
+
+Community files: `.github/ISSUE_TEMPLATE/*.yml`, `.github/PULL_REQUEST_TEMPLATE.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, and `ACCESSIBILITY.MD`. See `docs/local-file-parity.md` for the local-only capability matrix.
+
 # PP-MD File Catalog and Naming Review
 
 ## Purpose

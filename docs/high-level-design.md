@@ -1,3 +1,11 @@
+## Local-File Parity in 1.3.0
+
+PP-MD retains its standalone Electron shell and ZIP parser. No connected Dataverse collectors or ToolBox bridge are introduced. A complete All Selected Solutions document now accompanies the existing consolidated summary. Matching peer metadata fills gaps without broadening individual top-level inventories; manifest prerequisites retain their source solution.
+
+Portable export adapters produce sanitised standalone HTML, searchable PDF with diagram images and source fallbacks, and styled solution workbooks. A shared download layer handles safe filenames, collisions, category folders, progress and cancellation. Diagnostics remain separate from normal documentation. The diagram renderer schedules background work with visible-first ordering and a 100-entry LRU cache.
+
+See [local-file parity](local-file-parity.md) for capability boundaries, exclusions, and verification requirements.
+
 # PP-MD High-Level Design
 
 ## Overview

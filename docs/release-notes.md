@@ -1,5 +1,27 @@
 # PP-MD Release Notes
 
+## Version 1.3.4 - 2026-10-29
+
+Replaced the short accessibility statement with the edition's full statement adapted for standalone Windows/Electron PP-MD. Updated reporting links, local-processing and export details, and verification limitations; retained the existing Issue and Pull Request templates.
+
+## Version 1.3.3 - 2026-10-29
+
+Diagram companions are created only when explicitly selected and appear in a dedicated Diagrams sidebar section. All settings are covered by output-level regressions, including scope/column/security filters in Markdown and Excel, themes, ERD modes, consolidation, and saved presets. Fixed forced splitting, scope leakage, ignored diagram themes, empty diagram sections, and companion loss on Markdown import.
+
+## Version 1.3.2 - 2026-10-29
+
+Export and Options dropdowns now have clearly contrasting full-row hover highlights and keyboard-focus outlines in both themes. Highlighted text is contrast-checked at 6.70:1 in light mode and 9.46:1 in dark mode. Forced-colours rendering retains readable labels and native checkbox states. Browser tests explicitly exercise these states.
+
+## Version 1.3.1 - 2026-10-28
+
+Uniform 40px adjacent controls with 6px corner radii. Export All and Options now use clearly indicated, non-modal popovers that escape clipping, close on Escape or outside click, and remain usable on narrow screens. Desktop/mobile regressions verify actual exports, settings changes, dismissal, and sizing.
+
+## Version 1.3.0 - 2026-10-28
+
+Local-file parity with PP-MD-PPTB-Edition: full consolidated documents, peer gap fill, separate diagnostics, optional manifest prerequisites, standalone HTML, searchable PDF, structured Excel, category/batch ZIPs, responsive toolbar updates, diagram themes/background rendering, and cancellation. Dataverse-connected features and environment appendices are excluded.
+
+GitHub issue/PR templates and community policies are included. See [the parity guide](local-file-parity.md) and [current release notes](../Release-Notes.md).
+
 ---
 
 ## Version 1.1.22

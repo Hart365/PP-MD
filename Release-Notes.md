@@ -1,5 +1,45 @@
 # PP-MD Release Notes
 
+## Version 1.3.4 - 2026-10-29
+
+- Adapt the edition's full accessibility statement for standalone PP-MD, retaining its people-first commitment, limitations, reporting steps, and alternative contact route.
+- Describe local ZIP processing, Windows/Electron verification gaps, diagram options, and both PDF export paths without connected-host references.
+- Confirm local Accessibility, Bug, and Feature issue forms and the Pull Request template are present; point statement links to the PP-MD repository.
+
+## Version 1.3.3 - 2026-10-29
+
+- Honour the separate-diagrams checkbox for individual, large, and consolidated documents; remove forced automatic separation.
+- Group companion documents in a dedicated Diagrams sidebar section and preserve document selection when options change.
+- Validate all section toggles, column-detail checkboxes, attribute selection modes, security filters, diagram inclusion/themes/palette, consolidation, and saved output settings against generated output.
+- Fix disabled-scope content leaking into relationship diagrams and consolidated summaries, empty diagram sections when diagrams are off, and ignored exported Mermaid themes.
+- Apply scope, attribute selection, metadata-column visibility, security filters, and summary detail to structured Excel exports.
+- Keep companions when importing Markdown and consistently regenerate documents after presets, context changes, and ERD changes.
+
+## Version 1.3.2 - 2026-10-29
+
+- Add clear full-row hover highlights to Export All actions, Options checkbox rows, and the document Export menu.
+- Use verified contrasting fills and text in light and dark themes, with distinct inset outlines for keyboard focus.
+- Preserve readable system-colour highlights in Windows forced colours without obscuring option labels or native checkboxes.
+- Add highlighted-state contrast gates and browser regressions for pointer hover, keyboard focus, and forced-colours behavior.
+
+## Version 1.3.1 - 2026-10-28
+
+- Standardise adjacent header, viewer, diagram, and configuration controls to a 40px height and 6px corner radius.
+- Replace the Export All and Options disclosures with non-modal, top-layer popovers so menus cannot be clipped or block the application invisibly.
+- Add dropdown arrows, expanded-state announcements, outside-click and Escape dismissal, and automatic closing after export selection.
+- Add desktop and 320px browser regressions for menu actions, dismissal, control dimensions, and accessibility.
+
+## Version 1.3.0 - 2026-10-28
+
+- Port PP-MD-PPTB-Edition local-file documentation and export capabilities without connected Dataverse features.
+- Add full consolidated documents, matching-peer gap fill, separate Diagnostics, and optional ZIP-declared import-dependency reports.
+- Add standalone HTML, searchable PDF, styled per-table Excel workbooks, category ZIPs, and batch HTML/PDF/Excel exports.
+- Add richer table properties, cancellation checkpoints, output settings, diagram themes, lazy background rendering and a bounded SVG cache.
+- Refresh responsive toolbar navigation, consolidated sidebar grouping, version branding, and GitHub access while retaining Markdown import/search and desktop packaging.
+- Add GitHub issue forms, a pull-request template, contribution/security/accessibility guidance, and a Code of Conduct.
+- Keep current environment-variable values out of generated documentation, preserve the desktop tagged-PDF option, and fix SVG-to-PDF conversion failures and generated-viewer contrast/reflow issues.
+- See [local-file parity](docs/local-file-parity.md) for included capabilities, exclusions, and verification requirements. Searchable PDF is not a PDF/UA conformance claim.
+
 ---
 
 ## Version 1.2.3

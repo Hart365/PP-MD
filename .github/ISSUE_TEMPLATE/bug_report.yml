@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a problem with local solution processing, the interface, or exports.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check existing issues before reporting. This report is public: do not attach customer ZIPs, sensitive generated documents, credentials, or personal data.
+        Report suspected vulnerabilities through the [Security policy](https://github.com/Hart365/PP-MD/blob/main/SECURITY.md), not a public issue.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What went wrong?
+      description: Explain what you expected and what actually happened.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we reproduce it?
+      description: Include the affected screen, ZIP component, or export format. Use a small synthetic example where possible.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: PP-MD version
+      description: Shown in the app header. Enter Not sure if unknown.
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Where were you running it?
+      options:
+        - Windows portable app
+        - Windows installed app
+        - Local development browser
+        - Not sure
+  - type: textarea
+    id: setup
+    attributes:
+      label: Your setup
+      description: Windows or browser version, theme, and assistive technology where relevant.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Additional evidence
+      description: Task impact, a workaround, or redacted errors. Check attachments for sensitive data.

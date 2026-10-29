@@ -174,6 +174,7 @@ export interface OptionSetOption {
  * A global or local OptionSet (Choice) definition.
  */
 export interface OptionSetDefinition extends NamedItem {
+  metadataId?: string;
   /** Whether the set is global (reusable across entities) */
   isGlobal: boolean;
   /** The individual options */
@@ -265,6 +266,28 @@ export interface EntityRelationship {
  * A Dataverse table (entity) with all of its metadata.
  */
 export interface EntityDefinition extends NamedItem {
+  metadataSource?: 'local';
+  tableType?: 'Standard' | 'Activity' | 'Virtual' | 'Elastic';
+  entityHelpUrlEnabled?: boolean;
+  entityHelpUrl?: string;
+  hasNotes?: boolean;
+  isDuplicateDetectionEnabled?: boolean;
+  isAuditEnabled?: boolean;
+  isQuickCreateEnabled?: boolean;
+  isRetentionEnabled?: boolean;
+  hasActivities?: boolean;
+  isActivityParty?: boolean;
+  isOneNoteIntegrationEnabled?: boolean;
+  isMailMergeEnabled?: boolean;
+  isDocumentManagementEnabled?: boolean;
+  isConnectionsEnabled?: boolean;
+  hasEmailAddresses?: boolean;
+  autoCreateAccessTeams?: boolean;
+  hasFeedback?: boolean;
+  syncToExternalSearchIndex?: boolean;
+  isAvailableOffline?: boolean;
+  isValidForQueue?: boolean;
+  autoRouteToOwnerQueue?: boolean;
   /** Logical name (e.g. account, new_widget) */
   logicalName: string;
   /** Object Type Code */
@@ -688,7 +711,8 @@ export interface EnvironmentVariableDefinition extends NamedItem {
   /** Default value defined in the solution */
   defaultValue?: string;
   /** Whether a value was provided */
-  hasCurrentValue: boolean;
+  hasCurrentValue?: boolean;
+  currentValueError?: string;
   /** Current/override value (masked if secret) */
   currentValue?: string;
   /** Schema name */
@@ -840,6 +864,11 @@ export interface SolutionMetadata {
  * This is the central data model passed to the Markdown generator.
  */
 export interface ParsedSolution {
+  missingDependencies?: MissingDependency[];
+  missingDependenciesError?: string;
+  dependencySolutionUniqueNames?: string[];
+  solutionComponents?: SolutionComponentDetail[];
+  unmappedComponents?: { componentType: number; componentTypeName?: string; objectId: string; error?: string }[];
   /** Metadata from solution.xml */
   metadata: SolutionMetadata;
   /** Tables / entities */
@@ -886,4 +915,25 @@ export interface ParsedSolution {
   pluginAssemblies: PluginAssemblyDefinition[];
   /** Any parse warnings or non-fatal errors */
   warnings: string[];
+}
+
+export interface MissingDependency {
+  dependentName: string;
+  dependentType: string;
+  requiredName: string;
+  requiredType: string;
+  tableLogicalNames: string[];
+  requiredParent?: string;
+  dependentId?: string;
+  requiredId?: string;
+  solutionUniqueName?: string;
+}
+
+export interface SolutionComponentDetail {
+  componentType: number;
+  componentTypeName: string;
+  objectId: string;
+  name: string;
+  entityLogicalName?: string;
+  properties: { name: string; value: string }[];
 }

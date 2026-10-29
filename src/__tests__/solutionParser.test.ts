@@ -1,7 +1,24 @@
 import JSZip from 'jszip';
 
-import { parseSolutionZip } from '../parser/solutionParser';
+import { parseManifestMissingDependencies, parseSolutionZip } from '../parser/solutionParser';
 import { AppType, AttributeType } from '../types/solution';
+
+describe('local file parity metadata', () => {
+  it('reads only declared manifest prerequisites with their table owners', () => {
+    const dependencies = parseManifestMissingDependencies('<ImportExportXml><SolutionManifest><MissingDependencies><MissingDependency><Required type="1" schemaName="account"/><Dependent type="2" schemaName="new_customer" parentSchemaName="new_case"/></MissingDependency></MissingDependencies></SolutionManifest></ImportExportXml>');
+    expect(dependencies).toEqual([expect.objectContaining({
+      dependentName: 'new_case.new_customer', dependentType: 'Column', requiredName: 'account',
+      requiredType: 'Table', tableLogicalNames: ['new_case'],
+    })]);
+    expect(parseManifestMissingDependencies('<ImportExportXml><SolutionManifest/></ImportExportXml>')).toEqual([]);
+  });
+
+  it('cancels before opening a file', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(parseSolutionZip(new Blob(), undefined, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+  });
+});
 
 async function buildTestZip(): Promise<Blob> {
   const zip = new JSZip();

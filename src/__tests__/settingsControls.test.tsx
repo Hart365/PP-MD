@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import App from '../App';
+import App, { rebuildResults } from '../App';
+import { DEFAULT_DOCUMENTATION_SETTINGS } from '../generator/markdownGenerator';
+import { AttributeType, type ParsedSolution } from '../types/solution';
 
 vi.mock('../components/SolutionSidebar', () => ({
   SolutionSidebar: () => null,
@@ -26,6 +28,62 @@ async function expandSection(heading: RegExp) {
 }
 
 describe('settings controls and migration', () => {
+  const documentContext = { client: '', project: '', contract: '', sow: '', sprint: '', releaseDate: '' };
+  const solution: ParsedSolution = {
+    metadata: { uniqueName: 'sample', displayName: 'Sample', version: '1', publisherName: 'Test', isManaged: false, dependencies: [], componentInventory: [] },
+    entities: [{ name: 'new_case', logicalName: 'new_case', isCustom: true, description: 'Large document '.repeat(4000), attributes: [
+      { name: 'new_name', type: AttributeType.String, required: false, isCustom: true },
+    ], relationships: [] }],
+    optionSets: [], forms: [], views: [], processes: [], apps: [], agents: [], aiModels: [], desktopFlows: [],
+    dataflows: [], customApis: [], offlineProfiles: [], webResources: [], securityRoles: [], fieldSecurityProfiles: [],
+    connectionReferences: [], environmentVariables: [], emailTemplates: [], reports: [], dashboards: [], pluginAssemblies: [], warnings: [],
+  };
+
+  for (const count of [1, 2]) {
+    for (const separateDiagramsDocument of [false, true]) {
+      it(`honours separate diagrams=${separateDiagramsDocument} for ${count} large solution documents`, () => {
+        const inputs = Array.from({ length: count }, (_, index) => ({
+          solution: { ...solution, metadata: { ...solution.metadata, uniqueName: `sample_${index}` } },
+          markdown: '', fileName: `Sample ${index}.md`,
+        }));
+        const results = rebuildResults(inputs, 'detailed-relationships', documentContext, { ...DEFAULT_DOCUMENTATION_SETTINGS, separateDiagramsDocument });
+        const companions = results.filter((result) => result.isDiagramCompanion);
+        expect(companions).toHaveLength(separateDiagramsDocument ? count + (count > 1 ? 1 : 0) : 0);
+        const main = results.filter((result) => !result.isReport && !result.isDiagramCompanion);
+        expect(main).toHaveLength(count + (count > 1 ? 1 : 0));
+        main.forEach((result) => {
+          expect(result.markdown.length).toBeGreaterThan(45000);
+          expect(result.markdown.includes('```mermaid')).toBe(!separateDiagramsDocument);
+        });
+      });
+    }
+  }
+
+  it('creates no companion documents when diagrams are excluded even if separation is enabled', () => {
+    const results = rebuildResults([{ solution, markdown: '', fileName: 'Sample.md' }], 'compact', documentContext, {
+      ...DEFAULT_DOCUMENTATION_SETTINGS, includeDiagrams: false, separateDiagramsDocument: true,
+    });
+    expect(results.some((result) => result.isDiagramCompanion)).toBe(false);
+    expect(results.every((result) => !result.markdown.includes('```mermaid'))).toBe(true);
+  });
+
+  for (const createConsolidatedDocument of [true, false]) {
+    for (const includeDiagrams of [true, false]) {
+      for (const separateDiagramsDocument of [true, false]) {
+        it(`honours combined=${createConsolidatedDocument}, diagrams=${includeDiagrams}, separate=${separateDiagramsDocument}`, () => {
+          const inputs = [solution, { ...solution, metadata: { ...solution.metadata, uniqueName: 'other' } }]
+            .map((item) => ({ solution: item, markdown: '', fileName: `${item.metadata.uniqueName}.md` }));
+          const results = rebuildResults(inputs, 'compact', documentContext, {
+            ...DEFAULT_DOCUMENTATION_SETTINGS, createConsolidatedDocument, includeDiagrams, separateDiagramsDocument,
+          });
+          expect(results.some((result) => result.isConsolidated)).toBe(createConsolidatedDocument);
+          expect(results.filter((result) => result.isDiagramCompanion)).toHaveLength(includeDiagrams && separateDiagramsDocument ? 2 + Number(createConsolidatedDocument) : 0);
+          if (!includeDiagrams) expect(results.every((result) => !result.markdown.includes('```mermaid'))).toBe(true);
+        });
+      }
+    }
+  }
+
   beforeEach(() => {
     localStorage.clear();
   });
@@ -91,6 +149,10 @@ describe('settings controls and migration', () => {
 
     await expandSection(/diagram options/i);
     fireEvent.click(screen.getByLabelText(/generate companion diagrams document/i));
+    fireEvent.click(screen.getByLabelText('Include diagrams', { exact: true }));
+    fireEvent.click(screen.getByLabelText('Create All Selected Solutions document', { exact: true }));
+    fireEvent.click(screen.getByLabelText('Include missing import dependencies', { exact: true }));
+    fireEvent.change(screen.getByLabelText('Diagram colour theme'), { target: { value: 'forest' } });
 
     await expandSection(/document options/i);
     fireEvent.change(screen.getByLabelText(/select attribute selection mode/i), {
@@ -111,6 +173,7 @@ describe('settings controls and migration', () => {
       expect((saved[0].documentationSettings as { securityRoleFilters?: { onlyTablesInCurrentSolution?: boolean; onlyCustomTables?: boolean } }).securityRoleFilters?.onlyTablesInCurrentSolution).toBe(true);
       expect((saved[0].documentationSettings as { securityRoleFilters?: { onlyTablesInCurrentSolution?: boolean; onlyCustomTables?: boolean } }).securityRoleFilters?.onlyCustomTables).toBe(true);
       expect((saved[0].documentationSettings as { separateDiagramsDocument?: boolean }).separateDiagramsDocument).toBe(true);
+      expect(saved[0].documentationSettings).toMatchObject({ includeDiagrams: false, createConsolidatedDocument: false, generateMissingDependencies: true, mermaidColourTheme: 'forest' });
     });
   });
 });

@@ -9,7 +9,8 @@ import { useState, useCallback, useEffect, useRef, useMemo, type ChangeEvent, ty
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { MermaidDiagram } from './MermaidDiagram';
+import rehypeSanitize from 'rehype-sanitize';
+import { MermaidDiagram, forceRenderAllMountedDiagrams } from './MermaidDiagram';
 import { exportRenderedMarkdownAsPdf } from '../../utils/pdfExport';
 import { exportMarkdownTablesToExcel } from '../../utils/tableExport';
 import styles from './MarkdownViewer.module.css';
@@ -19,6 +20,10 @@ export interface MarkdownViewerProps {
   title?: string;
   fileName?: string;
   onExport?: () => void;
+  onExportHtml?: () => void;
+  onExportPdf?: () => void;
+  onExportExcel?: () => void;
+  diagramTheme?: 'neutral' | 'default' | 'dark' | 'forest' | 'base';
   onStatusMessage?: (message: string) => void;
 }
 
@@ -51,7 +56,7 @@ function slugifyHeading(children: ReactNode): string {
 /**
  * Renders Markdown with diagram support, raw/rendered toggle, and export.
  */
-export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMessage }: MarkdownViewerProps) {
+export function MarkdownViewer({ markdown, title, fileName, onExport, onExportHtml, onExportPdf, onExportExcel, diagramTheme, onStatusMessage }: MarkdownViewerProps) {
   const [showRaw, setShowRaw] = useState(false);
   const [copyMsg, setCopyMsg] = useState('');
   const [isExportingPdf, setIsExportingPdf] = useState(false);
@@ -151,6 +156,7 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
       return (
         <MermaidDiagram
           chart={src}
+          theme={diagramTheme}
           caption={cap}
           mermaidGroupKey={mermaidDocumentKey}
           onRenderStateChange={handleMermaidRenderState}
@@ -173,11 +179,11 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
       return <a href={href} {...props} onClick={handleClick}>{children}</a>;
     },
     table: ({ children, ...props }: any) => (
-      <div style={{ overflowX: 'auto', margin: '1rem 0' }} role="region" aria-label="Table">
+      <div style={{ overflowX: 'auto', margin: '1rem 0' }} role="region" aria-label="Table" tabIndex={0}>
         <table {...props}>{children}</table>
       </div>
     ),
-  }), [handleMermaidRenderState, mermaidDocumentKey, scrollToHeading]);
+  }), [diagramTheme, handleMermaidRenderState, mermaidDocumentKey, scrollToHeading]);
 
   const renderedMermaidCount = Math.min(
     mermaidProgressState.docKey === mermaidDocumentKey ? mermaidProgressState.renderedIds.size : 0,
@@ -188,7 +194,7 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
     : 'No diagrams in document';
 
   const markdownHasRawHtml = useMemo(() => /<\/?[a-z][\s\S]*>/i.test(markdown), [markdown]);
-  const rehypePlugins = useMemo(() => (markdownHasRawHtml ? [rehypeRaw] : []), [markdownHasRawHtml]);
+  const rehypePlugins = useMemo(() => (markdownHasRawHtml ? [rehypeRaw, rehypeSanitize] : [rehypeSanitize]), [markdownHasRawHtml]);
 
   const renderedMarkdown = useMemo(() => (
     <ReactMarkdown
@@ -494,13 +500,13 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
 
   const handleExportExcelClick = useCallback(() => {
     closeExportMenu();
-    handleExportExcel();
-  }, [closeExportMenu, handleExportExcel]);
+    if (onExportExcel) onExportExcel(); else handleExportExcel();
+  }, [closeExportMenu, handleExportExcel, onExportExcel]);
 
   const handleExportPdfClick = useCallback(() => {
     closeExportMenu();
-    void handleExportPdf();
-  }, [closeExportMenu, handleExportPdf]);
+    if (onExportPdf) onExportPdf(); else void handleExportPdf();
+  }, [closeExportMenu, handleExportPdf, onExportPdf]);
 
   return (
     <section
@@ -590,6 +596,12 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
               📄 Export .md
             </button>
           )}
+          {onExportHtml && (
+            <button type="button" role="menuitem" className={styles.exportMenuItem} onClick={() => {
+              closeExportMenu();
+              onExportHtml();
+            }}>Export .html</button>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -613,6 +625,13 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
           >
             {isExportingPdf ? '⏳ Preparing PDF...' : '🧾 Export .pdf'}
           </button>
+          {onExportPdf && typeof window !== 'undefined' && 'electron' in window && (
+            <button type="button" role="menuitem" className={styles.exportMenuItem} disabled={isExportingPdf} onClick={() => {
+              closeExportMenu();
+              forceRenderAllMountedDiagrams();
+              void handleExportPdf();
+            }}>Export tagged PDF (desktop)</button>
+          )}
         </div>
       )}
       {isSearchOpen && !showRaw && (
@@ -681,6 +700,7 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onStatusMe
         <pre
           ref={rawSourceRef}
           className={styles.rawSource}
+          tabIndex={0}
           aria-label="Raw Markdown source"
           onScroll={handleScrollableScroll}
         >

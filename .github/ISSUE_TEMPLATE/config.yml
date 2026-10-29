@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security policy
+    url: https://github.com/Hart365/PP-MD/security/policy
+    about: Report suspected vulnerabilities privately, not in public issues.
+  - name: Accessibility statement
+    url: https://github.com/Hart365/PP-MD/blob/main/ACCESSIBILITY.MD
+    about: Accessibility goals, known limitations, and reporting guidance.
