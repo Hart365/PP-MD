@@ -333,10 +333,14 @@ test('narrow toolbar reflows and preserves keyboard access in both themes and fo
   await expect(page.getByRole('button', { name: 'Open toolbar menu' })).toBeVisible();
   await page.getByRole('button', { name: 'Open toolbar menu' }).click();
   await expect(page.getByRole('button', { name: 'Open previously generated Markdown files' })).toBeVisible();
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty('--transition-base', '2s');
+    document.documentElement.style.setProperty('--transition-fast', '1s');
+  });
   await page.getByRole('switch', { name: /switch to dark/i }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   const analysis = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
-  expect(analysis.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
+  expect(analysis.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => `${node.target.join(' ')} ${node.failureSummary}`).join('\n')}`)).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(await page.evaluate(() => ({
     viewport: window.innerHeight,
@@ -350,4 +354,9 @@ test('narrow toolbar reflows and preserves keyboard access in both themes and fo
   await page.getByRole('button', { name: 'Close toolbar menu' }).focus();
   await expect(page.getByRole('button', { name: 'Close toolbar menu' })).toBeFocused();
   await page.screenshot({ path: 'test-results/parity-mobile-forced-colours.png', fullPage: true });
+  await page.emulateMedia({ forcedColors: 'none', reducedMotion: 'no-preference' });
+  await page.getByRole('switch', { name: /switch to light/i }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  const lightAnalysis = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
+  expect(lightAnalysis.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => `${node.target.join(' ')} ${node.failureSummary}`).join('\n')}`)).toEqual([]);
 });

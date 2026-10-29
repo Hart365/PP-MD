@@ -1,5 +1,12 @@
 # PP-MD Release Notes
 
+## Version 1.3.5 - 2026-10-29
+
+- Fix intermittent dark-theme CI contrast failures caused by foreground and background colours transitioning at different rates.
+- Apply theme changes atomically while retaining normal hover/focus transitions after the switch.
+- Keep immediate WCAG contrast assertions, stress them with prolonged transition durations, and cover switching in both directions.
+- Retain Playwright screenshots and traces when CI fails, with element-level contrast diagnostics.
+
 ## Version 1.3.4 - 2026-10-29
 
 - Adapt the edition's full accessibility statement for standalone PP-MD, retaining its people-first commitment, limitations, reporting steps, and alternative contact route.

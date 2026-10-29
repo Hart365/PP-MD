@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App, { rebuildResults } from '../App';
 import { DEFAULT_DOCUMENTATION_SETTINGS } from '../generator/markdownGenerator';
 import { AttributeType, type ParsedSolution } from '../types/solution';
+import { ThemeProvider, useTheme } from '../context/ThemeContext';
 
 vi.mock('../components/SolutionSidebar', () => ({
   SolutionSidebar: () => null,
@@ -28,6 +29,38 @@ async function expandSection(heading: RegExp) {
 }
 
 describe('settings controls and migration', () => {
+  it('applies each theme while transitions are suppressed, then restores normal interaction styles', () => {
+    localStorage.setItem('pp-md-theme', 'light');
+    document.documentElement.removeAttribute('data-theme');
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    const applied: Array<{ theme: string | null; changing: boolean }> = [];
+    const layout = vi.spyOn(document.documentElement, 'getBoundingClientRect').mockImplementation(() => {
+      applied.push({ theme: document.documentElement.getAttribute('data-theme'), changing: document.documentElement.hasAttribute('data-theme-changing') });
+      return new DOMRect();
+    });
+    function ThemeProbe() {
+      const { toggleTheme } = useTheme();
+      return <button type="button" onClick={toggleTheme}>Toggle test theme</button>;
+    }
+    try {
+      render(<ThemeProvider><ThemeProbe /></ThemeProvider>);
+      fireEvent.click(screen.getByRole('button', { name: 'Toggle test theme' }));
+      expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+      expect(document.documentElement.hasAttribute('data-theme-changing')).toBe(false);
+      fireEvent.click(screen.getByRole('button', { name: 'Toggle test theme' }));
+      expect(applied).toEqual([
+        { theme: 'light', changing: true }, { theme: 'dark', changing: true }, { theme: 'light', changing: true },
+      ]);
+      expect(document.documentElement.hasAttribute('data-theme-changing')).toBe(false);
+      expect(localStorage.getItem('pp-md-theme')).toBe('light');
+    } finally {
+      layout.mockRestore();
+      vi.unstubAllGlobals();
+      document.documentElement.removeAttribute('data-theme');
+      document.documentElement.removeAttribute('data-theme-changing');
+    }
+  });
+
   const documentContext = { client: '', project: '', contract: '', sow: '', sprint: '', releaseDate: '' };
   const solution: ParsedSolution = {
     metadata: { uniqueName: 'sample', displayName: 'Sample', version: '1', publisherName: 'Test', isManaged: false, dependencies: [], componentInventory: [] },

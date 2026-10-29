@@ -79,7 +79,13 @@ function getInitialTheme(): Theme {
  * @param theme - The new theme to apply
  */
 function applyTheme(theme: Theme): void {
-  document.documentElement.setAttribute('data-theme', theme);
+  const root = document.documentElement;
+  if (root.getAttribute('data-theme') !== theme) {
+    root.setAttribute('data-theme-changing', '');
+    root.setAttribute('data-theme', theme);
+    root.getBoundingClientRect();
+    root.removeAttribute('data-theme-changing');
+  }
   // Update <meta name="theme-color"> to match the background token
   const themeColor = theme === 'dark' ? '#1e1e2e' : '#f8f9fa';
   const metaTag = document.querySelector('meta[name="theme-color"]');

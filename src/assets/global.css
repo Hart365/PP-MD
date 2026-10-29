@@ -40,6 +40,13 @@
 /* --------------------------------------------------------------------------
    Light theme tokens
    -------------------------------------------------------------------------- */
+html[data-theme-changing],
+html[data-theme-changing] *,
+html[data-theme-changing] *::before,
+html[data-theme-changing] *::after {
+  transition: none !important;
+}
+
 :root,
 [data-theme="light"] {
   /* Surface colours */

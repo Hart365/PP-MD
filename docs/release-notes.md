@@ -1,5 +1,9 @@
 # PP-MD Release Notes
 
+## Version 1.3.5 - 2026-10-29
+
+Fixed the intermittent narrow-screen accessibility gate by applying theme colours atomically instead of mixing animated light/dark colours. Immediate contrast checks now stress slow transitions in both directions, and CI retains browser failure screenshots/traces. Normal interaction transitions remain enabled after theme changes.
+
 ## Version 1.3.4 - 2026-10-29
 
 Replaced the short accessibility statement with the edition's full statement adapted for standalone Windows/Electron PP-MD. Updated reporting links, local-processing and export details, and verification limitations; retained the existing Issue and Pull Request templates.
