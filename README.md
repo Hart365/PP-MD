@@ -2,7 +2,9 @@
 
 PP-MD is a Windows desktop application that turns Microsoft Power Platform solution ZIP exports into structured, portable Markdown documentation with Mermaid diagrams. No server, no cloud upload, and no licence key required.
 
-Version 1.3.0 brings the local-file documentation and export capabilities of PP-MD-PPTB-Edition to the standalone desktop app. Dataverse-connected collection, environment appendices, and ToolBox host APIs are intentionally excluded. See the [parity guide](docs/local-file-parity.md), [Accessibility statement](ACCESSIBILITY.MD), [contributing guide](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md), and [security policy](SECURITY.md).
+Version 1.3.0 brings local-file documentation and export capabilities. 
+
+See [Accessibility statement](ACCESSIBILITY.MD), [contributing guide](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md), and [security policy](SECURITY.md).
 
 ---
 
