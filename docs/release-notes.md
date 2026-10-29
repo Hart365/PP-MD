@@ -1,5 +1,9 @@
 # PP-MD Release Notes
 
+## Version 1.3.6 - 2026-10-29
+
+Fixed the release-blocking mobile Menu hover contrast failure: header text and backgrounds now change together instead of passing through unreadable intermediate colours. Slow-transition export and two-theme hover regressions retain immediate WCAG checks. Application manifests, current-version documentation, release defaults, and downloads are aligned on 1.3.6, superseding the blocked v1.3.5 release.
+
 ## Version 1.3.5 - 2026-10-29
 
 Fixed the intermittent narrow-screen accessibility gate by applying theme colours atomically instead of mixing animated light/dark colours. Immediate contrast checks now stress slow transitions in both directions, and CI retains browser failure screenshots/traces. Normal interaction transitions remain enabled after theme changes.

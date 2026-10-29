@@ -2,7 +2,7 @@
 
 PP-MD is a Windows desktop application that turns Microsoft Power Platform solution ZIP exports into structured, portable Markdown documentation with Mermaid diagrams. No server, no cloud upload, and no licence key required.
 
-Version 1.3.0 brings local-file documentation and export capabilities. 
+Current version: **1.3.6**. Includes local-file documentation and exports, with atomic header hover colours that preserve contrast in both themes. See [release notes](Release-Notes.md).
 
 See [Accessibility statement](ACCESSIBILITY.MD), [contributing guide](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md), and [security policy](SECURITY.md).
 
@@ -76,7 +76,7 @@ Multiple solutions can be loaded at once and reviewed across all loaded solution
 
 ## Getting Started
 
-**Download the latest release** from the `release_latest_portable/` or `release_latest_installer/` folders in this repository, or build from source (see [Building from Source](#building-from-source)).
+**[Download the latest release](https://github.com/Hart365/PP-MD/releases/latest)**, or build from source (see [Building from Source](#building-from-source)). Local Windows builds are placed in `release_latest_portable/` and `release_latest_installer/`.
 
 | Artifact | Description |
 |---|---|

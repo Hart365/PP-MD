@@ -115,11 +115,16 @@ test('local solution parity workflow exports real files and remains accessible',
 
   await page.setViewportSize({ width: 320, height: 800 });
   await expect(page.getByRole('button', { name: 'Open toolbar menu' })).toBeVisible();
+  await page.addStyleTag({ content: ':root { --transition-fast: 1s ease; --transition-base: 2s ease; }' });
   await page.getByRole('button', { name: 'Open toolbar menu' }).click();
   await page.getByRole('switch', { name: /switch to dark/i }).click();
+  expect(await page.evaluate(() => document.getAnimations().filter((animation) =>
+    animation instanceof CSSTransition && /color|background/.test(animation.transitionProperty)
+    && ((animation.effect as KeyframeEffect).target as Element)?.checkVisibility()
+  ).map((animation) => (animation as CSSTransition).transitionProperty))).toEqual([]);
   await page.getByRole('button', { name: 'Close toolbar menu' }).click();
   const mobileAnalysis = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
-  expect(mobileAnalysis.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.failureSummary).join('\n')}`)).toEqual([]);
+  expect(mobileAnalysis.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => `${node.target.join(' ')} ${node.failureSummary}`).join('\n')}`)).toEqual([]);
   const controls = await page.getByRole('toolbar', { name: 'Documentation actions' }).getByRole('button').evaluateAll((buttons) => buttons.map((button) => {
     const bounds = button.getBoundingClientRect();
     return { right: bounds.right, left: bounds.left };
@@ -337,8 +342,27 @@ test('narrow toolbar reflows and preserves keyboard access in both themes and fo
     document.documentElement.style.setProperty('--transition-base', '2s');
     document.documentElement.style.setProperty('--transition-fast', '1s');
   });
+  async function checkHeaderHover() {
+    const menu = page.getByRole('button', { name: 'Close toolbar menu' });
+    await menu.hover();
+    expect(await menu.evaluate((button) => {
+      const actual = getComputedStyle(button);
+      const expected = document.createElement('span');
+      expected.style.backgroundColor = 'var(--color-accent)';
+      expected.style.color = 'var(--color-text-inverse)';
+      button.append(expected);
+      const target = getComputedStyle(expected);
+      const matches = actual.backgroundColor === target.backgroundColor && actual.color === target.color;
+      expected.remove();
+      return matches;
+    })).toBe(true);
+    const analysis = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
+    expect(analysis.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => `${node.target.join(' ')} ${node.failureSummary}`).join('\n')}`)).toEqual([]);
+  }
+  await checkHeaderHover();
   await page.getByRole('switch', { name: /switch to dark/i }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await checkHeaderHover();
   const analysis = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
   expect(analysis.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => `${node.target.join(' ')} ${node.failureSummary}`).join('\n')}`)).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

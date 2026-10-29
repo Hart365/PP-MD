@@ -1,5 +1,12 @@
 # PP-MD Release Notes
 
+## Version 1.3.6 - 2026-10-29
+
+- Fix transient low contrast on header controls, including the mobile toolbar Menu button, by switching hover foreground and background colours together.
+- Preserve the existing atomic theme switch and other interaction transitions; do not delay, retry, or weaken accessibility checks.
+- Stress the real export workflow with slow transitions and check immediate header hover colours in both themes.
+- Align application manifests, current-version documentation, release defaults, and packaged downloads on 1.3.6. Supersedes the blocked v1.3.5 release.
+
 ## Version 1.3.5 - 2026-10-29
 
 - Fix intermittent dark-theme CI contrast failures caused by foreground and background colours transitioning at different rates.

@@ -9,7 +9,7 @@ on:
       release_tag:
         description: Existing tag to build and publish assets for
         required: true
-        default: v1.0.4
+        default: v1.3.6
       include_windows:
         description: Also rebuild Windows assets (x64 and arm64)
         required: false
