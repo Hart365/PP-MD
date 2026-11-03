@@ -731,6 +731,8 @@ export interface EmailTemplateDefinition extends NamedItem {
   templateType?: string;
   /** LCID language code */
   languageCode?: string;
+  /** Dataverse columns referenced by placeholders in the subject/body */
+  referencedFields?: Array<{ entityLogicalName: string; attributeLogicalName: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -821,6 +823,8 @@ export interface SolutionDependency {
   displayName?: string;
   /** Version of the dependent solution, if specified */
   version?: string;
+  /** 'minimum' for an explicit Dependencies entry; 'exported' for the version a MissingDependencies entry was exported against */
+  versionSource?: 'minimum' | 'exported';
   /** Whether this dependency is internal to the platform */
   isInternal?: boolean;
   /** The dependent component information */
@@ -868,6 +872,8 @@ export interface ParsedSolution {
   missingDependenciesError?: string;
   dependencySolutionUniqueNames?: string[];
   solutionComponents?: SolutionComponentDetail[];
+  /** GUIDs of components physically defined in the ZIP (forms, views, flows, templates, ...) */
+  ownedComponentIds?: string[];
   unmappedComponents?: { componentType: number; componentTypeName?: string; objectId: string; error?: string }[];
   /** Metadata from solution.xml */
   metadata: SolutionMetadata;
@@ -918,14 +924,22 @@ export interface ParsedSolution {
 }
 
 export interface MissingDependency {
+  requiredSolution?: string;
   dependentName: string;
   dependentType: string;
+  dependentDisplayName?: string;
   requiredName: string;
   requiredType: string;
+  requiredDisplayName?: string;
   tableLogicalNames: string[];
   requiredParent?: string;
+  requiredParentDisplayName?: string;
   dependentId?: string;
   requiredId?: string;
+  /** Values of id.<key> attributes used by newer component types */
+  requiredKeys?: string[];
+  /** Managed application packages that deliver the required component */
+  requiredPackages?: Array<{ appName: string; version?: string; anchor?: string }>;
   solutionUniqueName?: string;
 }
 
@@ -935,5 +949,7 @@ export interface SolutionComponentDetail {
   objectId: string;
   name: string;
   entityLogicalName?: string;
+  /** RootComponent behavior attribute: 0 include subcomponents, 1 do not include subcomponents, 2 include as shell only */
+  rootComponentBehavior?: number;
   properties: { name: string; value: string }[];
 }

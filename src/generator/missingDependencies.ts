@@ -1,19 +1,26 @@
 import type { MissingDependency, ParsedSolution } from '../types/solution';
 
-export const MISSING_DEPENDENCIES_NOTE = 'These are installation/import prerequisites declared in the solution ZIP MissingDependencies manifest, not inferred runtime references. They may already exist in the target environment.';
+export const MISSING_DEPENDENCIES_NOTE = 'Import prerequisites declared in the solution ZIP MissingDependencies manifest, classified against this solution, the other selected ZIPs, the standard Dataverse platform and Microsoft-supplied solutions. Only items marked Missing are absent from all of these.';
 
 const normalize = (value: string) => value.trim().replace(/^\{|\}$/g, '').toLowerCase();
 
-export function dependencyComponentType(type: number): string {
+export function dependencyComponentType(type: number | string): string {
   const dependencyLabels: Record<number, string> = {
-    1: 'Table', 2: 'Column', 9: 'Global Option Set', 10: 'Relationship',
+    1: 'Table', 2: 'Column', 3: 'Relationship', 9: 'Global Option Set', 10: 'Relationship',
     20: 'Security Role', 24: 'Form', 26: 'View', 29: 'Process', 31: 'Report',
-    36: 'Email Template', 60: 'Form', 61: 'Web Resource', 80: 'App',
+    36: 'Email Template', 59: 'Chart', 60: 'Form', 61: 'Web Resource', 62: 'Site Map',
+    66: 'Custom Control', 68: 'Custom Control Default Config', 70: 'Field Security Profile', 80: 'App',
     90: 'Plugin Type', 91: 'Plugin Assembly', 92: 'Plugin Step',
     161: 'Offline Profile', 300: 'App', 371: 'Connector', 372: 'Connector',
-    380: 'Environment Variable', 10039: 'Connection Reference',
+    380: 'Environment Variable', 381: 'Environment Variable Value', 10039: 'Connection Reference',
   };
-  return dependencyLabels[type] ?? `Component ${type}`;
+  const textLabels: Record<string, string> = {
+    connectionreference: 'Connection Reference', environmentvariabledefinition: 'Environment Variable',
+    environmentvariablevalue: 'Environment Variable Value', settingdefinition: 'Setting Definition', appsetting: 'App Setting',
+  };
+  const raw = String(type).trim();
+  if (/^\d+$/.test(raw)) return dependencyLabels[Number(raw)] ?? `Component ${raw}`;
+  return textLabels[raw.toLowerCase()] ?? (raw || 'Component');
 }
 
 export function missingDependenciesNotice(solution: ParsedSolution): string | undefined {
@@ -47,7 +54,7 @@ export function collectMissingDependencies(solution: ParsedSolution): MissingDep
     const solutionUniqueName = dependency.solutionUniqueName ?? solution.metadata.uniqueName;
     const key = [
       solutionUniqueName, dependency.dependentType, dependency.dependentId || dependency.dependentName,
-      dependency.requiredType, dependency.requiredParent ?? '', dependency.requiredId || dependency.requiredName,
+      dependency.requiredType, dependency.requiredParent ?? '', dependency.requiredId || dependency.requiredName, dependency.requiredSolution ?? '',
     ].map(normalize).join('|');
     const existing = unique.get(key);
     unique.set(key, {

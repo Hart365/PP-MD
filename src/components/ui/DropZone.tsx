@@ -154,6 +154,7 @@ export function DropZone({ onFilesSelected, disabled = false }: DropZoneProps) {
   const handleProcess = useCallback(() => {
     if (queuedFiles.length === 0) return;
     onFilesSelected(sortFilesByName(queuedFiles));
+    setQueuedFiles([]);
   }, [queuedFiles, onFilesSelected]);
 
   // ── Render ─────────────────────────────────────────────────────────────────

@@ -323,20 +323,21 @@ describe('Excel solution export', () => {
     const zebra = workbook.Sheets.Zebra;
     const rows = XLSX.utils.sheet_to_json<string[]>(zebra, { header: 1, blankrows: true });
     const header = columnHeaderIndex(rows);
-    const dependencyTitle = rows.findIndex((row) => row[0] === 'Missing Dependencies');
+    const dependencyTitle = rows.findIndex((row) => row[0] === 'Import Dependencies');
     expect(dependencyTitle).toBe(header + source.entities[0].attributes.length + 2);
     expect(rows[dependencyTitle - 1] ?? []).toEqual([]);
     expect(rows.slice(header + 1, dependencyTitle - 1).map((row) => row[0])).toEqual(['Age', 'Customer', 'Name']);
-    expect(rows[dependencyTitle + 2]).toEqual(['Dependent Item', 'Item Type', 'Required Component', 'Required Type', 'Solution']);
-    expect(rows[dependencyTitle + 3]).toEqual(['sample_zebra.sample_customer', 'Column', 'account', 'Table', 'sample']);
+    expect(rows[dependencyTitle + 2]).toEqual(['Dependent Item', 'Item Type', 'Required Component', 'Required Type', 'Solution', 'Status', 'Detail']);
+    expect(rows[dependencyTitle + 3]).toEqual(['sample_zebra.sample_customer', 'Column', 'account', 'Table', 'sample',
+      'Standard platform component', 'Standard Dataverse component present in every environment.']);
     expect(rows.flat().join(' ')).not.toContain('other_script');
     expect(rows.flat().join(' ')).not.toContain('unrelated_requirement');
     expect(zebra['!autofilter']?.ref).toBe('A11:I14');
     expect(zebra.E1.l?.Target).toBe("#'Tables'!A1");
     const aardvarkRows = XLSX.utils.sheet_to_json<string[]>(workbook.Sheets.Aardvark, { header: 1 });
-    expect(aardvarkRows).toContainEqual(['Aardvark form', 'Form', 'other_script', 'Web Resource', 'sample']);
+    expect(aardvarkRows.find((row) => row[0] === 'Aardvark form')?.slice(0, 6)).toEqual(['Aardvark form', 'Form', 'other_script', 'Web Resource', 'sample', 'Missing']);
     expect(aardvarkRows.flat()).not.toContain('account');
-    expect(XLSX.utils.sheet_to_json<string[]>(workbook.Sheets.Tables, { header: 1 }).flat()).not.toContain('Missing Dependencies');
+    expect(XLSX.utils.sheet_to_json<string[]>(workbook.Sheets.Tables, { header: 1 }).flat()).not.toContain('Import Dependencies');
   });
 
   it('omits dependency tables by default and provides an explicit empty result when enabled for a table with no columns', async () => {
@@ -344,12 +345,12 @@ describe('Excel solution export', () => {
       ...withTables, entities: [{ ...withTables.entities[0], attributes: [] }], missingDependencies: [],
     };
     const disabled = await readWorkbook(createSolutionWorkbook(source));
-    expect(XLSX.utils.sheet_to_json<string[]>(disabled.Sheets.Zebra, { header: 1 }).flat()).not.toContain('Missing Dependencies');
+    expect(XLSX.utils.sheet_to_json<string[]>(disabled.Sheets.Zebra, { header: 1 }).flat()).not.toContain('Import Dependencies');
     const enabled = await readWorkbook(createSolutionWorkbook(source, undefined, { generateMissingDependencies: true }));
     const rows = XLSX.utils.sheet_to_json<string[]>(enabled.Sheets.Zebra, { header: 1, blankrows: true });
     const header = columnHeaderIndex(rows);
     expect(rows[header + 1] ?? []).toEqual([]);
-    expect(rows[header + 2][0]).toBe('Missing Dependencies');
+    expect(rows[header + 2][0]).toBe('Import Dependencies');
     expect(rows[header + 5][0]).toContain('No missing installation/import prerequisites were declared for this table');
     expect(enabled.Sheets.Zebra['!autofilter']).toBeUndefined();
   });

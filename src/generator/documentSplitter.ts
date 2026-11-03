@@ -87,7 +87,7 @@ const CATEGORY_DEFINITIONS: Array<{ key: string; title: string; headings: string
   { key: 'automation-and-processes', title: 'Automation & Processes', headings: ['Processes & Automation', 'Desktop Flows', 'Dataflows', 'Custom APIs', 'Offline Profiles'] },
   { key: 'plugins', title: 'Plugins & Plugin Steps', headings: ['Plugin Assemblies & Steps'] },
   { key: 'security-and-integration', title: 'Security & Integration', headings: ['Security Roles', 'Column Level Security Profiles', 'Connection References', 'Connections', 'Environment Variables', 'Email Templates', 'SharePoint Data Sources'] },
-  { key: 'reports-and-insights', title: 'Web Resources, Reports & Insights', headings: ['Web Resources', 'Reports & Dashboards', 'Dataverse Deep Insights', 'Additional Solution Components', 'Other Solution Components', 'Missing Dependencies'] },
+  { key: 'reports-and-insights', title: 'Web Resources, Reports & Insights', headings: ['Web Resources', 'Reports & Dashboards', 'Dataverse Deep Insights', 'Additional Solution Components', 'Other Solution Components', 'Import Dependencies'] },
 ];
 
 /**

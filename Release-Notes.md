@@ -1,5 +1,31 @@
 # PP-MD Release Notes
 
+## Version 1.3.9 - 2026-11-02
+
+- Stop reporting dependencies as missing when they are defined in the declaring solution or another selected solution: forms, views, flows and templates now match by GUID, newer components by `id.*` keys, and forms/views by display name with parent table.
+- Read text component types (`connectionreference`, `EnvironmentVariableDefinition`), display names and managed `<package>` owners from MissingDependencies.
+- Classify every declared prerequisite as included, provided by a selected solution, standard platform, target environment prerequisite or missing; standard Dataverse tables, columns and choices are never reported as missing.
+- Share one analysis across the installation guide, per-solution dependency reports, the in-document Import Dependencies section and Excel exports, with summary counts, grouped evidence, required actions and the evaluation rules.
+- Remove false solution-level failures derived from component owners; owner-declared selected solutions are trusted, with verification notes when an itemised component is absent.
+- Add end-to-end ZIP regressions for same-solution, cross-solution, standard, Microsoft, package and genuine gaps, following an independent model review.
+
+## Version 1.3.8 - 2026-11-02
+
+- Deduplicate repeated ZIP submissions and retain original source data separately from enriched documentation.
+- Clear processed upload queues; omit blocked solutions from numbered installation steps.
+- Resolve unambiguous friendly solution references and exclude table shells from verified ownership.
+- Analyse email-template table metadata and supported field placeholders, placing selected table/column providers first and reporting inferred evidence separately.
+- Distinguish explicit minimum versions from exported-against compatibility notes; report malformed or nested prerequisites.
+- Add permutation, provenance, shell, malformed-manifest and real ZIP/browser re-upload regressions following independent two-model reviews.
+
+## Version 1.3.7 - 2026-11-02
+
+- Add an opt-in Solution Installation Guide for all selected ZIPs, independent of consolidated output.
+- Order prerequisite solutions before dependents using manifest solution references and component IDs/schema names; check all four version parts.
+- Identify each dependent solution/item and required component in Missing Dependencies, including absent or ambiguous providers, duplicate ZIPs and incomplete manifests.
+- Flag blocked dependency chains and circular dependencies rather than claiming a safe import order; include an installation checklist and offline-analysis limitations.
+- Preserve root-component identifiers and distinguish component prerequisites from named solution prerequisites.
+
 ## Version 1.3.6 - 2026-10-29
 
 - Fix transient low contrast on header controls, including the mobile toolbar Menu button, by switching hover foreground and background colours together.

@@ -2,11 +2,14 @@ import * as XLSX from 'xlsx-js-style';
 import type { ParsedSolution, EntityDefinition } from '../types/solution';
 import { applyDocumentationScope, DEFAULT_DOCUMENTATION_SETTINGS, filterDocumentationPrivileges, selectDocumentationAttributes, type DocumentContext, type DocumentationSettings } from '../generator/markdownGenerator';
 import { buildTableMetadataBlocks, NOT_AVAILABLE_PREFIX, type MetadataBlock } from '../generator/tableMetadata';
-import { collectMissingDependencies, dependenciesForTable, missingDependenciesNotice, MISSING_DEPENDENCIES_NOTE } from '../generator/missingDependencies';
+import { dependenciesForTable, missingDependenciesNotice, MISSING_DEPENDENCIES_NOTE } from '../generator/missingDependencies';
+import { resolveSolutionDependencies } from '../generator/localDocumentation';
+import { DEPENDENCY_STATUS_LABELS, describeRequired } from '../generator/dependencyAnalysis';
 
 export interface ExcelExportOptions {
   generateMissingDependencies?: boolean;
   documentationSettings?: DocumentationSettings;
+  dependencyContext?: ParsedSolution[];
 }
 
 type CellValue = string | number;
@@ -241,7 +244,7 @@ function makeSheet(definition: SheetDefinition): XLSX.WorkSheet {
   if (definition.dependencies) {
     aoa.push([]);
     dependencyTitleRow = aoa.length;
-    aoa.push(['Missing Dependencies'], [
+    aoa.push(['Import Dependencies'], [
       MISSING_DEPENDENCIES_NOTE,
     ], definition.dependencies.headers);
     aoa.push(...(definition.dependencies.rows.length > 0
@@ -552,19 +555,24 @@ function buildSheets(solution: ParsedSolution, documentContext: DocumentContext 
     },
   ];
 
-  const missingDependencies = options.generateMissingDependencies ? collectMissingDependencies(solution) : [];
+  const resolutions = options.generateMissingDependencies ? resolveSolutionDependencies(solution, options.dependencyContext) : [];
   const perTableSheets: SheetDefinition[] = settings?.detailLevel === 'summary' ? [] : tableSheets.map(({ entity, sheetName }) => ({
     name: sheetName,
     title: { text: `${entityDisplayName(entity)} (${entity.logicalName})`, backLinkSheet: 'Tables' },
     metadataBlocks: buildTableMetadataBlocks(entity),
     dependencies: options.generateMissingDependencies ? {
       notice: missingDependenciesNotice(solution),
-      headers: ['Dependent Item', 'Item Type', 'Required Component', 'Required Type', 'Solution'],
-      rows: dependenciesForTable(missingDependencies, entity.logicalName).map((dependency) => [
-        dependency.dependentName, dependency.dependentType,
-        dependency.requiredParent ? `${dependency.requiredParent}.${dependency.requiredName}` : dependency.requiredName,
-        dependency.requiredType, dependency.solutionUniqueName ?? solution.metadata.uniqueName,
-      ]),
+      headers: ['Dependent Item', 'Item Type', 'Required Component', 'Required Type', 'Solution', 'Status', 'Detail'],
+      rows: dependenciesForTable(resolutions.map((resolution) => resolution.dependency), entity.logicalName).map((dependency) => {
+        const resolution = resolutions.find((item) => item.dependency === dependency)!;
+        return [
+          dependency.dependentName, dependency.dependentType,
+          describeRequired(dependency).replace(/^[^:]+: /, ''),
+          dependency.requiredType, resolution.consumer,
+          DEPENDENCY_STATUS_LABELS[resolution.status],
+          [resolution.providers.map((provider) => provider.metadata.uniqueName).join(', '), resolution.reason].filter(Boolean).join(': '),
+        ];
+      }),
     } : undefined,
     headers: [...COLUMN_HEADERS.filter((_, index) => selectedColumns[index]), ...extraHeaders],
     rows: entity.attributes.map((attribute) => [

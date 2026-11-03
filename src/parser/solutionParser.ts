@@ -19,30 +19,56 @@ import { XMLParser } from 'fast-xml-parser';
 import { dependencyComponentType } from '../generator/missingDependencies';
 import type { MissingDependency } from '../types/solution';
 
-export function parseManifestMissingDependencies(xml: string): MissingDependency[] {
+function readManifestMissingDependencies(xml: string): { dependencies: MissingDependency[]; malformedCount: number } {
   const document = xmlParser.parse(xml) as Record<string, unknown>;
-  const root = (document.ImportExportXml ?? document) as Record<string, unknown>;
-  const manifest = (root.SolutionManifest ?? root) as Record<string, unknown>;
-  const missing = (manifest.MissingDependencies ?? {}) as Record<string, unknown>;
-  const nodes = missing.MissingDependency;
-  return (nodes ? (Array.isArray(nodes) ? nodes : [nodes]) : []).map((node) => {
-    const dependency = node as Record<string, unknown>;
-    const required = (dependency.Required ?? {}) as Record<string, unknown>;
-    const dependent = (dependency.Dependent ?? {}) as Record<string, unknown>;
-    const name = (item: Record<string, unknown>) => xmlStr(item, '@_schemaName') || xmlStr(item, '@_displayName') || xmlStr(item, '@_id');
-    const type = (item: Record<string, unknown>) => dependencyComponentType(Number(xmlStr(item, '@_type')));
-    const parent = xmlStr(dependent, '@_parentSchemaName');
-    return {
-      dependentName: parent ? `${parent}.${name(dependent)}` : name(dependent),
+  const root = firstObject(ciRaw(document, 'ImportExportXml')) ?? document;
+  const manifest = firstObject(ciRaw(root, 'SolutionManifest')) ?? root;
+  const nodes = asObjectArray(ciRaw(manifest, 'MissingDependencies')).flatMap((container) => ciRaw(container, 'MissingDependency'));
+  const dependencies: MissingDependency[] = [];
+  let malformedCount = 0;
+  nodes.forEach((node) => {
+    const dependency = firstObject(node) ?? {};
+    const required = firstObject(ciRaw(dependency, 'Required')) ?? {};
+    const dependent = firstObject(ciRaw(dependency, 'Dependent')) ?? {};
+    // Newer component types identify themselves through id.<key> attributes instead of schemaName.
+    const keys = (item: Record<string, unknown>) => Object.keys(item)
+      .filter((attribute) => /^@_id\./i.test(attribute)).map((attribute) => xmlStr(item, attribute)).filter(Boolean);
+    const name = (item: Record<string, unknown>) => ciStr(item, '@_schemaName') || keys(item)[0] || ciStr(item, '@_displayName', '@_id');
+    const type = (item: Record<string, unknown>) => dependencyComponentType(ciStr(item, '@_type'));
+    const requiredName = name(required);
+    const dependentLeaf = name(dependent);
+    if (!requiredName || !dependentLeaf) {
+      malformedCount += 1;
+      return;
+    }
+    const parent = ciStr(dependent, '@_parentSchemaName');
+    const packages = asObjectArray(ciRaw(required, 'package')).map((item) => ({
+      appName: ciStr(item, '@_appName'),
+      version: ciStr(item, '@_version') || undefined,
+      anchor: xmlStr(item, '#text') || undefined,
+    })).filter((item) => item.appName);
+    dependencies.push({
+      dependentName: parent ? `${parent}.${dependentLeaf}` : dependentLeaf,
       dependentType: type(dependent),
-      requiredName: name(required),
+      dependentDisplayName: ciStr(dependent, '@_displayName') || undefined,
+      requiredName,
       requiredType: type(required),
-      requiredParent: xmlStr(required, '@_parentSchemaName') || undefined,
-      dependentId: xmlStr(dependent, '@_id') || undefined,
-      requiredId: xmlStr(required, '@_id') || undefined,
-      tableLogicalNames: parent ? [parent] : type(dependent) === 'Table' ? [name(dependent)] : [],
-    };
-  }).filter((dependency) => dependency.requiredName && dependency.dependentName);
+      requiredDisplayName: ciStr(required, '@_displayName') || undefined,
+      requiredParent: ciStr(required, '@_parentSchemaName') || undefined,
+      requiredParentDisplayName: ciStr(required, '@_parentDisplayName') || undefined,
+      dependentId: ciStr(dependent, '@_id') || undefined,
+      requiredId: ciStr(required, '@_id') || undefined,
+      requiredKeys: keys(required).length ? keys(required) : undefined,
+      requiredPackages: packages.length ? packages : undefined,
+      requiredSolution: ciStr(required, '@_solution', '@_solutionName', '@_requiredSolution') || undefined,
+      tableLogicalNames: parent ? [parent] : type(dependent) === 'Table' ? [dependentLeaf] : [],
+    });
+  });
+  return { dependencies, malformedCount };
+}
+
+export function parseManifestMissingDependencies(xml: string): MissingDependency[] {
+  return readManifestMissingDependencies(xml).dependencies;
 }
 
 import type {
@@ -136,6 +162,13 @@ const xmlParser = new XMLParser({
     ];
     return pluralTags.includes(tagName);
   },
+});
+
+const textEntityDecoder = new XMLParser({
+  processEntities: { enabled: true, maxEntitySize: 1000, maxTotalExpansions: 1000, maxExpandedLength: 1_000_000 },
+  htmlEntities: true,
+  parseTagValue: false,
+  trimValues: false,
 });
 
 // ---------------------------------------------------------------------------
@@ -261,6 +294,53 @@ function asObjectArray(value: unknown): Record<string, unknown>[] {
   return [];
 }
 
+
+function ciRaw(obj: Record<string, unknown>, name: string): unknown[] {
+  const wanted = name.toLowerCase();
+  return Object.keys(obj).filter((key) => key.toLowerCase() === wanted).flatMap((key) => {
+    const value = obj[key];
+    return Array.isArray(value) ? value : [value];
+  });
+}
+
+function ciStr(obj: Record<string, unknown>, ...names: string[]): string {
+  for (const name of names) {
+    const wanted = name.toLowerCase();
+    for (const key of Object.keys(obj)) {
+      if (key.toLowerCase() !== wanted) continue;
+      const value = xmlStr(obj, key);
+      if (value) return value;
+    }
+  }
+  return '';
+}
+
+const PLACEHOLDER_PATTERN = /\{!([A-Za-z_]\w*):([A-Za-z_]\w*)(?:;[^{}]*)?\}/g;
+
+function decodeXmlText(value: string): string {
+  try {
+    const decoded = (textEntityDecoder.parse(`<t>${value.replace(/</g, '&lt;')}</t>`) as { t?: unknown }).t;
+    return typeof decoded === 'string' ? decoded : value;
+  } catch {
+    return value;
+  }
+}
+
+function emailReferencedFields(sources: string[]): EmailTemplateDefinition['referencedFields'] {
+  const found = new Map<string, { entityLogicalName: string; attributeLogicalName: string }>();
+  sources.filter(Boolean).forEach((source) => {
+    const once = source.includes('&') ? decodeXmlText(source) : source;
+    const twice = once.includes('&') ? decodeXmlText(once) : once;
+    new Set([source, once, twice]).forEach((text) => {
+      for (const match of text.matchAll(PLACEHOLDER_PATTERN)) {
+        const entityLogicalName = match[1].toLowerCase();
+        const attributeLogicalName = match[2].toLowerCase();
+        found.set(`${entityLogicalName}.${attributeLogicalName}`, { entityLogicalName, attributeLogicalName });
+      }
+    });
+  });
+  return found.size ? [...found.values()] : undefined;
+}
 function xmlStrAny(obj: Record<string, unknown>, keys: string[], fallback = ''): string {
   for (const key of keys) {
     const value = xmlStr(obj, key);
@@ -278,14 +358,18 @@ function environmentVariableDisplayName(node: Record<string, unknown>, schemaNam
   );
 }
 
-function parseSolutionDependencies(root: Record<string, unknown>, solNode: Record<string, unknown>): SolutionDependency[] {
+function parseSolutionDependencies(root: Record<string, unknown>, solNode: Record<string, unknown>, warnings: string[] = []): SolutionDependency[] {
   const dependencies: SolutionDependency[] = [];
+  let malformedExplicit = 0;
+  const dependencyKey = (name: string, version?: string, source?: string) => `${name.toLowerCase()}|${(version || '').toLowerCase()}|${source ?? ''}`;
 
   const addDependency = (dep: SolutionDependency) => {
-    const name = dep.solutionName?.trim();
+    const reference = dep.solutionName?.trim().match(/^(.*?)\s*\((\d+(?:\.\d+){0,3})\)$/);
+    const name = (reference?.[1] ?? dep.solutionName)?.trim();
     if (!name) return;
-    const key = `${name.toLowerCase()}|${(dep.version || '').toLowerCase()}`;
-    if (dependencies.some((existing) => `${existing.solutionName.toLowerCase()}|${(existing.version || '').toLowerCase()}` === key)) {
+    dep = { ...dep, version: dep.version || reference?.[2] };
+    const key = dependencyKey(name, dep.version, dep.versionSource);
+    if (dependencies.some((existing) => dependencyKey(existing.solutionName, existing.version, existing.versionSource) === key)) {
       return;
     }
     dependencies.push({
@@ -295,97 +379,69 @@ function parseSolutionDependencies(root: Record<string, unknown>, solNode: Recor
     });
   };
 
-  const dependencyContainers = [
-    solNode['DependencyNodes'],
-    solNode['dependencynodes'],
-    solNode['Dependencies'],
-    solNode['dependencies'],
-    root['DependencyNodes'],
-    root['dependencynodes'],
-    root['Dependencies'],
-    root['dependencies'],
-  ];
+  const dependencyContainers = [...new Set([solNode, root])].flatMap((owner) => [
+    ...ciRaw(owner, 'DependencyNodes'),
+    ...ciRaw(owner, 'Dependencies'),
+  ]);
 
   dependencyContainers.forEach((container) => {
     asObjectArray(container).forEach((depRoot) => {
-      const nodes = [
-        ...asObjectArray(depRoot['DependencyNode']),
-        ...asObjectArray(depRoot['dependencynode']),
-        ...asObjectArray(depRoot['Dependency']),
-        ...asObjectArray(depRoot['dependency']),
-      ];
-      nodes.forEach((node) => {
-        const solutionName = xmlStrAny(node, [
-          '@_solution', '@_Solution',
-          '@_solutionname', '@_solutionName',
-          'solution', 'Solution',
-          'solutionname', 'solutionName',
-          '@_schemaname', '@_schemaName',
-          'schemaname', 'schemaName',
-          '@_name', '@_Name', 'name', 'Name',
-        ]);
-        if (!solutionName) return;
+      const nodes = [...ciRaw(depRoot, 'DependencyNode'), ...ciRaw(depRoot, 'Dependency')];
+      nodes.forEach((rawNode) => {
+        const node = firstObject(rawNode);
+        const required = node ? firstObject(ciRaw(node, 'Required')) : undefined;
+        const source = required ?? node;
+        const solutionName = node
+          ? ciStr(node, '@_solution', 'solution', '@_solutionname', 'solutionname', '@_schemaname', 'schemaname', '@_name', 'name')
+            || (required ? ciStr(required, '@_solution', 'solution', '@_solutionname', 'solutionname', '@_name', 'name') : '')
+          : '';
+        if (!node || !solutionName) {
+          malformedExplicit += 1;
+          return;
+        }
         addDependency({
           solutionName,
-          displayName: xmlStrAny(node, ['@_displayname', '@_displayName', 'displayname', 'displayName', '@_description', 'description']) || solutionName,
-          version: xmlStrAny(node, ['@_version', '@_Version', 'version', 'Version']) || undefined,
-          isInternal: parseBooleanLike(xmlStrAny(node, ['@_internal', '@_isinternal', 'internal', 'isinternal'])) || false,
-          dependentComponentInfo: xmlStrAny(node, ['@_dependentcomponentinfo', 'dependentcomponentinfo', '@_dependentComponentInfo', 'dependentComponentInfo']) || undefined,
+          displayName: ciStr(node, '@_displayname', 'displayname', '@_description', 'description') || solutionName,
+          version: ciStr(node, '@_version', 'version') || (source ? ciStr(source, '@_version', 'version') : '') || undefined,
+          versionSource: 'minimum',
+          isInternal: parseBooleanLike(ciStr(node, '@_internal', '@_isinternal', 'internal', 'isinternal')) || false,
+          dependentComponentInfo: ciStr(node, '@_dependentcomponentinfo', 'dependentcomponentinfo') || undefined,
         });
       });
     });
   });
 
-  const missingDependencyRoots = [
-    root['MissingDependencies'],
-    root['missingdependencies'],
-    solNode['MissingDependencies'],
-    solNode['missingdependencies'],
-  ];
+  if (malformedExplicit > 0) {
+    warnings.push(`solution.xml contains ${malformedExplicit} dependency ${malformedExplicit === 1 ? 'entry' : 'entries'} without a solution name; ${malformedExplicit === 1 ? 'it was' : 'they were'} not recorded.`);
+  }
+
+  const missingDependencyRoots = [...new Set([root, solNode])].flatMap((owner) => ciRaw(owner, 'MissingDependencies'));
 
   missingDependencyRoots.forEach((missingRoot) => {
     asObjectArray(missingRoot).forEach((container) => {
-      const missingItems = [
-        ...asObjectArray(container['MissingDependency']),
-        ...asObjectArray(container['missingdependency']),
-      ];
+      const missingItems = asObjectArray(ciRaw(container, 'MissingDependency'));
 
       missingItems.forEach((missing) => {
-        const requiredNode =
-          firstObject(missing['Required']) ||
-          firstObject(missing['required']) ||
-          missing;
-        const dependentNode =
-          firstObject(missing['Dependent']) ||
-          firstObject(missing['dependent']);
+        const requiredNode = firstObject(ciRaw(missing, 'Required')) || missing;
+        const dependentNode = firstObject(ciRaw(missing, 'Dependent'));
 
-        const solutionName = xmlStrAny(requiredNode, [
-          '@_solution', '@_Solution',
-          '@_solutionname', '@_solutionName',
-          'solution', 'Solution',
-          'solutionname', 'solutionName',
-          '@_requiredsolution', '@_requiredSolution',
-          'requiredsolution', 'requiredSolution',
-          '@_schemaname', '@_schemaName',
-          'schemaname', 'schemaName',
-          '@_displayname', '@_displayName',
-          'displayname', 'displayName',
-        ]);
+        const solutionName = ciStr(requiredNode, '@_solution', 'solution', '@_solutionname', 'solutionname', '@_requiredsolution', 'requiredsolution');
         if (!solutionName) return;
 
         const dependentInfo = dependentNode
           ? [
-            xmlStrAny(dependentNode, ['@_type', 'type']),
-            xmlStrAny(dependentNode, ['@_displayname', '@_displayName', 'displayname', 'displayName']),
-            xmlStrAny(dependentNode, ['@_schemaname', '@_schemaName', 'schemaname', 'schemaName']),
+            ciStr(dependentNode, '@_type', 'type'),
+            ciStr(dependentNode, '@_displayname', 'displayname'),
+            ciStr(dependentNode, '@_schemaname', 'schemaname'),
           ].filter((value) => !!value).join(' | ') || undefined
           : undefined;
 
         addDependency({
           solutionName,
-          displayName: xmlStrAny(requiredNode, ['@_displayname', '@_displayName', 'displayname', 'displayName', '@_description', 'description']) || solutionName,
-          version: xmlStrAny(requiredNode, ['@_version', '@_Version', 'version', 'Version']) || undefined,
-          isInternal: parseBooleanLike(xmlStrAny(requiredNode, ['@_internal', '@_isinternal', 'internal', 'isinternal'])) || false,
+          displayName: ciStr(requiredNode, '@_displayname', 'displayname', '@_description', 'description') || solutionName,
+          version: ciStr(requiredNode, '@_version', 'version') || undefined,
+          versionSource: 'exported',
+          isInternal: parseBooleanLike(ciStr(requiredNode, '@_internal', '@_isinternal', 'internal', 'isinternal')) || false,
           dependentComponentInfo: dependentInfo,
         });
       });
@@ -905,7 +961,7 @@ export const COMPONENT_TYPE_MAP: Record<number, string> = {
  * @param xml - Raw XML string from solution.xml
  * @returns Parsed metadata
  */
-function parseSolutionMetadata(xml: string): SolutionMetadata {
+function parseSolutionMetadata(xml: string, warnings: string[] = []): SolutionMetadata {
   const doc = xmlParser.parse(xml) as Record<string, unknown>;
   const root = (doc['ImportExportXml'] ?? doc) as Record<string, unknown>;
   const solNode = (root['SolutionManifest'] ?? root['solutionmanifest'] ?? root) as Record<string, unknown>;
@@ -939,7 +995,7 @@ function parseSolutionMetadata(xml: string): SolutionMetadata {
   const solutionPrefix = xmlStrAny(solNode, ['Prefix', 'prefix', 'CustomizationPrefix', 'customizationprefix', '@_Prefix', '@_prefix']);
 
   // Parse dependencies from all known solution.xml structures
-  const dependencies = parseSolutionDependencies(root, solNode);
+  const dependencies = parseSolutionDependencies(root, solNode, warnings);
 
   const componentInventoryMap = new Map<string, number>();
   const rootComponentsContainer = firstObject(solNode['RootComponents'] ?? solNode['rootcomponents']);
@@ -2523,7 +2579,7 @@ export async function parseSolutionZip(
   if (!solutionXml) {
     throw new Error('Invalid Power Platform solution: solution.xml not found in the ZIP archive.');
   }
-  const metadata = parseSolutionMetadata(solutionXml);
+  const metadata = parseSolutionMetadata(solutionXml, warnings);
 
   // ── Step 3: Parse customizations.xml ───────────────────────────────────
   report(20);
@@ -3031,28 +3087,26 @@ export async function parseSolutionZip(
 
     // ── Email Templates ─────────────────────────────────────────────────────
     report(63);
-    const emailRoot = (root['EmailTemplates'] ?? root['emailtemplates'] ?? root['Templates'] ?? root['templates'] ?? {}) as Record<string, unknown>;
-    const rawEmailTemplates: unknown[] = (() => {
-      const tpl = emailRoot['EmailTemplate'] ?? emailRoot['emailtemplate'] ?? emailRoot['Template'] ?? emailRoot['template'];
-      if (!tpl) return [];
-      return Array.isArray(tpl) ? tpl : [tpl];
-    })();
+    const emailRoots = asObjectArray([...ciRaw(root, 'EmailTemplates'), ...ciRaw(root, 'Templates')]);
+    const rawEmailTemplates: unknown[] = emailRoots.flatMap((container) => [
+      ...ciRaw(container, 'EmailTemplate'),
+      ...ciRaw(container, 'Template'),
+    ]);
     rawEmailTemplates.forEach((tpl) => {
-      const tn = tpl as Record<string, unknown>;
-      const name =
-        xmlStr(tn, 'Name') ||
-        xmlStr(tn, '@_Name') ||
-        xmlStr(tn, 'Title') ||
-        xmlStr(tn, '@_Title') ||
-        xmlStr(tn, 'TemplateId');
+      const tn = firstObject(tpl);
+      if (!tn) return;
+      const name = ciStr(tn, 'Name', '@_Name', 'Title', '@_Title', 'TemplateId');
       emailTemplates.push({
         name,
-        displayName: getLocalizedLabel(tn, xmlStr(tn, 'DisplayName') || name),
-        description: xmlStr(tn, 'Description') || undefined,
-        subject: xmlStr(tn, 'Subject') || xmlStr(tn, '@_Subject') || undefined,
-        entityLogicalName: xmlStr(tn, 'ObjectTypeCode') || xmlStr(tn, 'EntityName') || xmlStr(tn, '@_ObjectTypeCode') || undefined,
-        templateType: xmlStr(tn, 'TemplateType') || xmlStr(tn, 'templatetype') || undefined,
-        languageCode: xmlStr(tn, 'LanguageCode') || xmlStr(tn, '@_languagecode') || undefined,
+        displayName: getLocalizedLabel(tn, ciStr(tn, 'DisplayName') || name),
+        description: ciStr(tn, 'Description') || undefined,
+        subject: ciStr(tn, 'Subject', '@_Subject') || undefined,
+        entityLogicalName: ciStr(tn, 'TemplateTypeCode', '@_TemplateTypeCode', 'EntityName', '@_EntityName', 'ObjectTypeCode', '@_ObjectTypeCode') || undefined,
+        templateType: ciStr(tn, 'TemplateType') || undefined,
+        languageCode: ciStr(tn, 'LanguageCode', '@_languagecode') || undefined,
+        referencedFields: emailReferencedFields([
+          ciStr(tn, 'Subject'), ciStr(tn, 'SubjectPresentationXml'), ciStr(tn, 'Body'), ciStr(tn, 'PresentationXml'),
+        ]),
       } as EmailTemplateDefinition);
     });
 
@@ -4085,11 +4139,23 @@ export async function parseSolutionZip(
   });
 
   // ── Step 7: Assemble and return ──────────────────────────────────────────
+  const manifestMissingDependencies = readManifestMissingDependencies(solutionXml);
+  const ownedComponentIds = new Set<string>();
+  if (customizationsXml) collectOwnedComponentIds(xmlParser.parse(customizationsXml), ownedComponentIds);
+  getEntriesWithPrefix(zip, 'Workflows/').forEach((_entry, path) => {
+    const id = path.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.[a-z]+$/i)?.[1];
+    if (id) ownedComponentIds.add(id.toLowerCase());
+  });
   const parsed: ParsedSolution = {
     metadata,
-    missingDependencies: parseManifestMissingDependencies(solutionXml).map((dependency) => ({
+    solutionComponents: parseManifestComponents(solutionXml),
+    ownedComponentIds: [...ownedComponentIds].sort(),
+    missingDependencies: manifestMissingDependencies.dependencies.map((dependency) => ({
       ...dependency, solutionUniqueName: metadata.uniqueName,
     })),
+    ...(manifestMissingDependencies.malformedCount > 0 ? {
+      missingDependenciesError: `solution.xml contains ${manifestMissingDependencies.malformedCount} MissingDependency ${manifestMissingDependencies.malformedCount === 1 ? 'entry' : 'entries'} without a required or dependent identity; the dependency list may be incomplete.`,
+    } : {}),
     entities:               entities.filter((e) => !!e.logicalName),
     optionSets,
     forms,
@@ -4116,4 +4182,55 @@ export async function parseSolutionZip(
 
   report(100);
   return parsed;
+}
+
+function parseManifestComponents(xml: string): import('../types/solution').SolutionComponentDetail[] {
+  const document = xmlParser.parse(xml) as Record<string, unknown>;
+  const root = firstObject(ciRaw(document, 'ImportExportXml')) ?? document;
+  const manifest = firstObject(ciRaw(root, 'SolutionManifest')) ?? root;
+  const components = firstObject(ciRaw(manifest, 'RootComponents'));
+  return asObjectArray(components ? ciRaw(components, 'RootComponent') : []).map((component) => {
+    const rawType = ciStr(component, '@_type');
+    const componentType = Number(rawType);
+    const behavior = ciStr(component, '@_behavior', '@_rootcomponentbehavior');
+    const rootComponentBehavior = behavior === '' ? NaN : Number(behavior);
+    return {
+      componentType,
+      componentTypeName: dependencyComponentType(rawType),
+      objectId: ciStr(component, '@_id'),
+      name: ciStr(component, '@_schemaName') || Object.keys(component).filter((attribute) => /^@_id\./i.test(attribute)).map((attribute) => xmlStr(component, attribute)).find(Boolean) || '',
+      entityLogicalName: ciStr(component, '@_parentSchemaName') || undefined,
+      rootComponentBehavior: Number.isInteger(rootComponentBehavior) ? rootComponentBehavior : undefined,
+      properties: [],
+    };
+  });
+}
+
+// Only keys that identify the component itself; reference keys such as viewid or plugintypeid are deliberately excluded.
+const OWN_COMPONENT_ID_KEYS = new Set([
+  'formid', 'savedqueryid', 'savedqueryvisualizationid', 'workflowid', 'templateid', 'webresourceid', 'sitemapid',
+  'appmoduleid', 'appmoduleidunique', 'reportid', 'connectionreferenceid', 'environmentvariabledefinitionid',
+  'customapiid', 'fieldsecurityprofileid', 'pluginassemblyid', 'sdkmessageprocessingstepid', 'canvasappid',
+]);
+const OWN_ID_ELEMENTS = new Set(['role', 'appmodule', 'emailtemplate', 'template', 'workflow', 'canvasapp']);
+const GUID_PATTERN = /^\{?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\}?$/i;
+
+function collectOwnedComponentIds(node: unknown, ids: Set<string>, element = ''): void {
+  if (Array.isArray(node)) {
+    node.forEach((item) => collectOwnedComponentIds(item, ids, element));
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+  Object.entries(node as Record<string, unknown>).forEach(([rawKey, value]) => {
+    const key = rawKey.replace(/^@_/, '').toLowerCase();
+    if (typeof value === 'string' || typeof value === 'number') {
+      const guid = String(value).trim().match(GUID_PATTERN)?.[1];
+      if (guid && (OWN_COMPONENT_ID_KEYS.has(key) || (key === 'id' && OWN_ID_ELEMENTS.has(element)))) ids.add(guid.toLowerCase());
+      return;
+    }
+    const text = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>)['#text'] : undefined;
+    const guid = typeof text === 'string' ? text.trim().match(GUID_PATTERN)?.[1] : undefined;
+    if (guid && OWN_COMPONENT_ID_KEYS.has(key)) ids.add(guid.toLowerCase());
+    collectOwnedComponentIds(value, ids, key);
+  });
 }

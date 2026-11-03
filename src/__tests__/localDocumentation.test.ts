@@ -49,7 +49,7 @@ describe('local documentation parity', () => {
       ...DEFAULT_DOCUMENTATION_SETTINGS, includeDiagrams: false, generateMissingDependencies: true,
     } });
     expect(markdown).not.toContain('```mermaid');
-    expect(markdown).toContain('## Missing Dependencies');
+    expect(markdown).toContain('## Import Dependencies');
     expect(splitMarkdownByCategory(markdown).some((category) => category.markdown.includes('new_case.new_customer'))).toBe(true);
   });
 

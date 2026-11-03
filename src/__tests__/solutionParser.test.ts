@@ -20,6 +20,91 @@ describe('local file parity metadata', () => {
   });
 });
 
+async function parseInstallationFixture(manifestBody: string, customizations = '<ImportExportXml />') {
+  const zip = new JSZip();
+  zip.file('solution.xml', `<ImportExportXml><SolutionManifest><UniqueName>pkg</UniqueName><Version>1.0.0.0</Version><Managed>0</Managed>${manifestBody}</SolutionManifest></ImportExportXml>`);
+  zip.file('customizations.xml', customizations);
+  return parseSolutionZip(await zip.generateAsync({ type: 'blob' }));
+}
+
+describe('installation dependency data', () => {
+  it('reads nested explicit solution prerequisites and reports malformed nested entries', async () => {
+    const parsed = await parseInstallationFixture('<Dependencies><Dependency><Required solution="base" version="2.0.0.0" /></Dependency><Dependency><Required type="1" /></Dependency></Dependencies>');
+    expect(parsed.metadata.dependencies).toContainEqual(expect.objectContaining({ solutionName: 'base', version: '2.0.0.0', versionSource: 'minimum' }));
+    expect(parsed.warnings.some((warning) => warning.includes('1 dependency entry without a solution name'))).toBe(true);
+  });
+  it('parses lower-case email template fields and referenced placeholders without keeping bodies', async () => {
+    const parsed = await parseInstallationFixture('', `<ImportExportXml><templates><template>
+      <templateid>{1}</templateid><title>Welcome</title><subject>Hi {!new_table:new_field;}</subject>
+      <templatetypecode>new_table</templatetypecode><languagecode>1033</languagecode>
+      <body>&lt;span&gt;{!Account:Name;Fallback} and {!new_table:new_other;}&lt;/span&gt;</body>
+      <presentationxml>&amp;lt;p&amp;gt;{!contact:emailaddress1;}&amp;lt;/p&amp;gt;</presentationxml>
+    </template></templates></ImportExportXml>`);
+    expect(parsed.emailTemplates).toHaveLength(1);
+    const [template] = parsed.emailTemplates;
+    expect(template).toMatchObject({ name: 'Welcome', subject: 'Hi {!new_table:new_field;}', entityLogicalName: 'new_table', languageCode: '1033' });
+    expect(template.referencedFields).toEqual(expect.arrayContaining([
+      { entityLogicalName: 'new_table', attributeLogicalName: 'new_field' },
+      { entityLogicalName: 'account', attributeLogicalName: 'name' },
+      { entityLogicalName: 'new_table', attributeLogicalName: 'new_other' },
+      { entityLogicalName: 'contact', attributeLogicalName: 'emailaddress1' },
+    ]));
+    expect(template.referencedFields).toHaveLength(4);
+    expect(JSON.stringify(template)).not.toContain('<span');
+  });
+
+  it('parses mixed-case email template forms and numeric character references', async () => {
+    const parsed = await parseInstallationFixture('', `<ImportExportXml><Templates><Template>
+      <Title>Upper</Title><TemplateTypeCode>new_table</TemplateTypeCode>
+      <Body>&#123;!new_table:new_field;&#125; and {!bad name:field;}</Body>
+    </Template><Template><Name>Legacy</Name><ObjectTypeCode>new_legacy</ObjectTypeCode></Template></Templates></ImportExportXml>`);
+    expect(parsed.emailTemplates.map((template) => template.name)).toEqual(['Upper', 'Legacy']);
+    expect(parsed.emailTemplates[0]).toMatchObject({
+      entityLogicalName: 'new_table',
+      referencedFields: [{ entityLogicalName: 'new_table', attributeLogicalName: 'new_field' }],
+    });
+    expect(parsed.emailTemplates[1]).toMatchObject({ entityLogicalName: 'new_legacy' });
+    expect(parsed.emailTemplates[1].referencedFields).toBeUndefined();
+  });
+
+  it('keeps root component behavior, identifiers and parents with case-insensitive tags', async () => {
+    const parsed = await parseInstallationFixture(`<rootcomponents>
+      <rootcomponent type="1" schemaname="new_table" behavior="2" />
+      <RootComponent TYPE="2" id="{ABC}" schemaName="new_field" parentSchemaName="new_table" Behavior="0" />
+      <RootComponent type="61" schemaName="new_/script.js" />
+    </rootcomponents>`);
+    expect(parsed.solutionComponents).toEqual([
+      expect.objectContaining({ componentType: 1, name: 'new_table', rootComponentBehavior: 2 }),
+      expect.objectContaining({ componentType: 2, objectId: '{ABC}', name: 'new_field', entityLogicalName: 'new_table', rootComponentBehavior: 0 }),
+      expect.objectContaining({ componentType: 61, name: 'new_/script.js', rootComponentBehavior: undefined }),
+    ]);
+  });
+
+  it('distinguishes explicit minimum versions from exported missing-dependency versions', async () => {
+    const parsed = await parseInstallationFixture(`<Dependencies><Dependency solution="base" version="1.0.0.0" /></Dependencies>
+      <MissingDependencies><MissingDependency><Required type="1" schemaName="account" solution="provider (2.0.0.5)" /><Dependent type="2" schemaName="new_x" parentSchemaName="new_t" /></MissingDependency></MissingDependencies>`);
+    expect(parsed.metadata.dependencies).toEqual([
+      expect.objectContaining({ solutionName: 'base', version: '1.0.0.0', versionSource: 'minimum' }),
+      expect.objectContaining({ solutionName: 'provider', version: '2.0.0.5', versionSource: 'exported' }),
+    ]);
+    expect(parsed.missingDependencies).toEqual([expect.objectContaining({ requiredSolution: 'provider (2.0.0.5)' })]);
+    expect(parsed.missingDependenciesError).toBeUndefined();
+  });
+
+  it('reports malformed dependency entries instead of dropping them silently', async () => {
+    const parsed = await parseInstallationFixture(`<Dependencies><Dependency /><Dependency version="1.0.0.0" /></Dependencies>
+      <MissingDependencies>
+        <MissingDependency><Required type="1" /><Dependent type="2" schemaName="new_x" /></MissingDependency>
+        <MissingDependency />
+        <MissingDependency><Required type="1" schemaName="account" /><Dependent type="2" schemaName="new_ok" parentSchemaName="new_t" /></MissingDependency>
+      </MissingDependencies>`);
+    expect(parsed.missingDependencies).toEqual([expect.objectContaining({ requiredName: 'account', dependentName: 'new_t.new_ok' })]);
+    expect(parsed.missingDependenciesError).toMatch(/2 MissingDependency entries/);
+    expect(parsed.warnings.some((warning) => /2 dependency entries without a solution name/.test(warning))).toBe(true);
+    expect(parsed.metadata.dependencies).toEqual([]);
+  });
+});
+
 async function buildTestZip(): Promise<Blob> {
   const zip = new JSZip();
 

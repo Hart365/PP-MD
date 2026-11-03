@@ -46,6 +46,7 @@ import {
   type MermaidPaletteSettings,
 } from './generator/markdownGenerator';
 import type { ParsedSolution } from './types/solution';
+import { generateInstallationMarkdown } from './generator/localDocumentation';
 import { downloadDocument, downloadDocumentBatch, type ExportFormat, type ExportDocument } from './utils/documentExport';
 import appIcon from './assets/app-icon.svg';
 import packageJson from '../package.json';
@@ -65,13 +66,15 @@ interface ProcessingEntry {
 /** A fully-processed result */
 interface SolutionResult {
   solution:  ParsedSolution;
+  sourceSolution?: ParsedSolution;
+  dependencyContext?: ParsedSolution[];
   markdown:  string;
   fileName:  string;
   isConsolidated?: boolean;
   isDiagramCompanion?: boolean;
   isImportedMarkdown?: boolean;
   isReport?: boolean;
-  reportKind?: 'summary' | 'diagnostics' | 'dependencies';
+  reportKind?: 'summary' | 'diagnostics' | 'dependencies' | 'installation';
 }
 
 type ErdMode = 'compact' | 'detailed-relationships';
@@ -126,6 +129,7 @@ function normalizeDocumentationSettings(settings: DocumentationSettings | undefi
     includeDiagrams: settings?.includeDiagrams ?? true,
     createConsolidatedDocument: settings?.createConsolidatedDocument ?? true,
     generateMissingDependencies: settings?.generateMissingDependencies ?? false,
+    generateInstallationGuide: settings?.generateInstallationGuide ?? false,
     mermaidColourTheme: settings?.mermaidColourTheme ?? 'neutral',
     detailLevel: settings?.detailLevel === 'summary' ? 'summary' : 'detailed',
     scope: {
@@ -349,12 +353,13 @@ function buildConsolidatedResult(
   _erdMode: ErdMode,
   documentContext: DocumentContext,
   documentationSettings: DocumentationSettings,
+  dependencyContext: ParsedSolution[] = [],
 ): SolutionResult[] {
   if (documentationSettings.createConsolidatedDocument === false) return [];
   const solutions = results.map((r) => r.solution);
   const aggregated: ParsedSolution = consolidateSolutions(solutions);
   aggregated.metadata.displayName = 'All Selected Solutions';
-  const markdown = generateMarkdown(aggregated, { erdMode: _erdMode, documentContext, documentationSettings });
+  const markdown = generateMarkdown(aggregated, { erdMode: _erdMode, documentContext, documentationSettings, dependencyContext });
   const summary: SolutionResult = {
     solution: aggregated,
     markdown: generateConsolidatedMarkdown(solutions, { documentContext, documentationSettings }),
@@ -407,13 +412,19 @@ export function rebuildResults(
   documentationSettings: DocumentationSettings,
 ): SolutionResult[] {
   const importedMarkdownResults = results.filter((entry) => entry.isImportedMarkdown);
-  const sourceResults = results.filter((entry) => !entry.isConsolidated && !entry.isDiagramCompanion && !entry.isImportedMarkdown && !entry.isReport);
+  const sourcesByIdentity = new Map<string, SolutionResult>();
+  results.filter((entry) => !entry.isConsolidated && !entry.isDiagramCompanion && !entry.isImportedMarkdown && !entry.isReport).forEach((entry) => {
+    const source = entry.sourceSolution ?? entry.solution;
+    const identity = `${source.metadata.uniqueName.trim().toLowerCase()}|${source.metadata.version}|${source.metadata.isManaged}`;
+    sourcesByIdentity.set(identity, { ...entry, solution: source, sourceSolution: source });
+  });
+  const sourceResults = [...sourcesByIdentity.values()];
+  const dependencyContext = sourceResults.map((entry) => entry.sourceSolution ?? entry.solution);
 
-  const base = sortSolutionResults(results
-    .filter((entry) => !entry.isConsolidated && !entry.isDiagramCompanion && !entry.isImportedMarkdown && !entry.isReport)
+  const base = sortSolutionResults(sourceResults
     .flatMap((entry) => {
       entry = { ...entry, solution: fillSolutionGapsFromPeerSolutions(entry.solution, sourceResults.filter((peer) => peer !== entry).map((peer) => peer.solution)) };
-      const markdown = generateMarkdown(entry.solution, { erdMode, documentContext, documentationSettings });
+      const markdown = generateMarkdown(entry.solution, { erdMode, documentContext, documentationSettings, dependencyContext });
       if (!documentationSettings.separateDiagramsDocument || documentationSettings.includeDiagrams === false) {
         return [{
           ...entry,
@@ -451,22 +462,34 @@ export function rebuildResults(
     }));
 
   const primary = base.filter((entry) => !entry.isDiagramCompanion);
-  const combined = primary.length > 1 ? buildConsolidatedResult(primary, erdMode, documentContext, documentationSettings) : [];
-  const reports = [...primary, ...combined.filter((entry) => !entry.isDiagramCompanion && !entry.isReport)].flatMap((entry) => {
+  const combined = primary.length > 1 ? buildConsolidatedResult(primary, erdMode, documentContext, documentationSettings, dependencyContext) : [];
+  const reports: SolutionResult[] = [...primary, ...combined.filter((entry) => !entry.isDiagramCompanion && !entry.isReport)].flatMap((entry) => {
     const diagnostics = generateDiagnosticsMarkdown(entry.solution);
     return [
       ...(diagnostics ? [{ ...entry, markdown: diagnostics, fileName: entry.fileName.replace(/\.md$/i, ' - Diagnostics.md'), isReport: true, reportKind: 'diagnostics' as const }] : []),
-      ...(documentationSettings.generateMissingDependencies ? [{ ...entry, markdown: generateDependencyReportMarkdown(entry.solution), fileName: entry.fileName.replace(/\.md$/i, ' - Dependencies.md'), isReport: true, reportKind: 'dependencies' as const }] : []),
+      ...(documentationSettings.generateMissingDependencies ? [{ ...entry, markdown: generateDependencyReportMarkdown(entry.solution, dependencyContext), fileName: entry.fileName.replace(/\.md$/i, ' - Dependencies.md'), isReport: true, reportKind: 'dependencies' as const }] : []),
     ];
   });
+  if (documentationSettings.generateInstallationGuide && sourceResults.length) {
+    reports.push({
+      ...sourceResults[0],
+      solution: {
+        ...sourceResults[0].solution,
+        metadata: { ...sourceResults[0].solution.metadata, displayName: 'Solution Installation Guide' },
+      },
+      markdown: generateInstallationMarkdown(dependencyContext),
+      fileName: 'Solution Installation Guide.md',
+      isReport: true,
+      reportKind: 'installation',
+    });
+  }
   return [
     ...combined.filter((entry) => !entry.isDiagramCompanion),
     ...base.filter((entry) => !entry.isDiagramCompanion),
     ...combined.filter((entry) => entry.isDiagramCompanion),
     ...base.filter((entry) => entry.isDiagramCompanion),
     ...reports,
-    ...importedMarkdownResults,
-  ];
+  ].map((entry): SolutionResult => ({ ...entry, dependencyContext })).concat(importedMarkdownResults);
 }
 
 /**
@@ -1104,6 +1127,7 @@ export default function App() {
                   {([
                     ['createConsolidatedDocument', 'Create consolidated document'],
                     ['generateMissingDependencies', 'Generate missing dependencies'],
+                    ['generateInstallationGuide', 'Generate installation guide'],
                     ['includeDiagrams', 'Include diagrams'],
                     ['separateDiagramsDocument', 'Separate diagrams document'],
                   ] as const).map(([key, label]) => (
@@ -1190,6 +1214,7 @@ export default function App() {
                   {([
                     ['createConsolidatedDocument', 'Create All Selected Solutions document'],
                     ['generateMissingDependencies', 'Include missing import dependencies'],
+                    ['generateInstallationGuide', 'Generate installation guide'],
                     ['includeDiagrams', 'Include diagrams'],
                   ] as const).map(([key, label]) => (
                     <label key={key}>

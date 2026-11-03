@@ -56,6 +56,8 @@ export interface MarkdownGenerationOptions {
   erdMode?: 'compact' | 'detailed-relationships';
   documentContext?: DocumentContext;
   documentationSettings?: DocumentationSettings;
+  /** All selected source solutions, used to resolve declared import prerequisites */
+  dependencyContext?: ParsedSolution[];
 }
 
 export type DocumentationDetailLevel = 'summary' | 'detailed';
@@ -113,6 +115,7 @@ export interface DocumentationSettings {
   includeDiagrams?: boolean;
   createConsolidatedDocument?: boolean;
   generateMissingDependencies?: boolean;
+  generateInstallationGuide?: boolean;
   mermaidColourTheme?: 'neutral' | 'default' | 'dark' | 'forest' | 'base';
   detailLevel: DocumentationDetailLevel;
   scope: DocumentationScopeSettings;
@@ -133,6 +136,7 @@ export const DEFAULT_DOCUMENTATION_SETTINGS: DocumentationSettings = {
   includeDiagrams: true,
   createConsolidatedDocument: true,
   generateMissingDependencies: false,
+  generateInstallationGuide: false,
   mermaidColourTheme: 'neutral',
   detailLevel: 'detailed',
   scope: {
@@ -3067,7 +3071,7 @@ export function generateMarkdown(
     markdown = markdown.replace(/^%%\{ init: \{ 'theme': '(?:neutral|base)'/gm, `%%{ init: { 'theme': '${theme}'`);
   }
   if (options.documentationSettings?.generateMissingDependencies) {
-    markdown += '\n\n' + generateDependencyReportMarkdown(solution).replace(/^# .+\n/, '## Missing Dependencies\n');
+    markdown += '\n\n' + generateDependencyReportMarkdown(solution, options.dependencyContext, 2);
   }
   return markdown;
 }

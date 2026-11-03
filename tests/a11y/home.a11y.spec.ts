@@ -29,6 +29,81 @@ test('home screen meets WCAG 2.2 AA baseline checks', async ({ page }) => {
   ).toEqual([]);
 });
 
+for (const width of [1280, 320]) {
+  test(`optional installation guide identifies dependent solutions and exports at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    const option = page.getByRole('checkbox', { name: 'Generate installation guide', exact: true });
+    await expect(option).not.toBeChecked();
+    await option.focus();
+    await page.keyboard.press('Space');
+    await expect(option).toBeChecked();
+    await page.locator('input[type="file"][accept*=".zip"]').setInputFiles([await solutionFile('Alpha'), await solutionFile('Beta')]);
+    await page.getByRole('button', { name: 'Generate documentation for 2 files' }).click();
+    await page.getByRole('button', { name: 'View documentation for Solution Installation Guide', exact: true }).click();
+    const viewer = page.getByRole('region', { name: 'Documentation for Solution Installation Guide', exact: true });
+    await expect(viewer.getByRole('heading', { name: 'Installation Order', exact: true })).toBeVisible();
+    await expect(viewer.getByRole('heading', { name: 'Missing Dependencies', exact: true })).toBeAttached();
+    await expect(viewer.getByText('No missing dependencies.', { exact: false })).toBeVisible();
+    await expect(viewer.getByRole('heading', { name: 'Standard Platform Components', exact: true })).toBeAttached();
+    await expect(viewer.getByRole('cell', { name: 'Table: account', exact: true })).toHaveCount(2);
+    await expect(viewer.getByRole('heading', { name: 'Blocked Solutions', exact: true })).toHaveCount(0);
+    await expect(viewer.getByRole('cell', { name: /^\d+$/ })).not.toHaveCount(0);
+    const analysis = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
+    expect(analysis.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
+    await page.screenshot({ path: `test-results/installation-guide-${width}.png`, fullPage: true });
+    await page.getByRole('button', { name: 'Export documentation', exact: true }).click();
+    const pending = page.waitForEvent('download');
+    await page.getByRole('menuitem', { name: /Export \.md$/i }).click();
+    const download = await pending;
+    expect(download.suggestedFilename()).toBe('Solution Installation Guide.md');
+    const content = await readFile((await download.path())!, 'utf8');
+    expect(content).toContain('| 1 | Alpha |');
+    expect(content).toContain('| 2 | Beta |');
+    expect(content).toContain('| Alpha | Table: account |');
+    expect(content).not.toContain('## Blocked Solutions');
+    if (width === 320) await page.getByRole('button', { name: 'Open toolbar menu' }).click();
+    await page.getByRole('button', { name: 'Options', exact: true }).click();
+    await page.getByRole('checkbox', { name: 'Generate installation guide', exact: true }).uncheck();
+    await expect(page.getByRole('button', { name: 'View documentation for Solution Installation Guide', exact: true })).toHaveCount(0);
+  });
+}
+
+test('email-template ZIPs are ordered after schema providers and repeated uploads do not duplicate steps', async ({ page }) => {
+  const file = async (name: string, manifest: string, customizations = '<ImportExportXml/>') => {
+    const zip = new JSZip();
+    zip.file('solution.xml', `<ImportExportXml><SolutionManifest><UniqueName>${name}</UniqueName><Version>1.0</Version>${manifest}</SolutionManifest></ImportExportXml>`);
+    zip.file('customizations.xml', customizations);
+    return { name: `${name}.zip`, mimeType: 'application/zip', buffer: await zip.generateAsync({ type: 'nodebuffer' }) };
+  };
+  const tables = await file('z_tables', '<RootComponents><RootComponent type="1" schemaName="new_case" behavior="0"/></RootComponents>');
+  const columns = await file('y_columns', '<Dependencies><Dependency solution="z_tables"/></Dependencies><RootComponents><RootComponent type="2" schemaName="new_detail" parentSchemaName="new_case"/></RootComponents>');
+  const email = await file('a_email', '', '<ImportExportXml><templates><template><title>Case notification</title><templatetypecode>new_case</templatetypecode><body>{!new_case:new_detail;}</body></template></templates></ImportExportXml>');
+  await page.goto('/');
+  await page.getByRole('checkbox', { name: 'Generate installation guide', exact: true }).check();
+  await page.locator('input[type="file"][accept*=".zip"]').setInputFiles([email, columns, tables]);
+  await page.getByRole('button', { name: 'Generate documentation for 3 files' }).click();
+  await page.getByRole('button', { name: 'View documentation for Solution Installation Guide', exact: true }).click();
+  const viewer = page.getByRole('region', { name: 'Documentation for Solution Installation Guide', exact: true });
+  await expect(viewer.getByRole('row').filter({ has: page.getByRole('cell', { name: 'z_tables', exact: true }) }).first()).toContainText('1');
+  await expect(viewer.getByRole('row').filter({ has: page.getByRole('cell', { name: 'y_columns', exact: true }) }).first()).toContainText('2');
+  await expect(viewer.getByRole('row').filter({ has: page.getByRole('cell', { name: 'a_email', exact: true }) }).first()).toContainText('3');
+  await expect(page.getByRole('button', { name: 'Generate documentation for 3 files' })).toHaveCount(0);
+  await page.getByText('＋ Add more solution files', { exact: true }).click();
+  await page.locator('input[type="file"][accept*=".zip"]').setInputFiles([tables, columns]);
+  await page.getByRole('button', { name: 'Generate documentation for 2 files' }).click();
+  await page.getByRole('button', { name: 'View documentation for Solution Installation Guide', exact: true }).click();
+  await page.getByRole('button', { name: 'Export documentation', exact: true }).click();
+  const pending = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: /Export \.md$/i }).click();
+  const content = await readFile((await (await pending).path())!, 'utf8');
+  expect(content.match(/\| \d+ \| z_tables \|/g)).toHaveLength(1);
+  expect(content.match(/\| \d+ \| y_columns \|/g)).toHaveLength(1);
+  expect(content).toContain('| 1 | z_tables |');
+  expect(content).toContain('| 2 | y_columns |');
+  expect(content).toContain('| 3 | a_email |');
+});
+
 test('settings controls support keyboard navigation and visible focus flow', async ({ page }) => {
   await page.goto('/');
 

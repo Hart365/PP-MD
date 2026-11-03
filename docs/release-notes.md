@@ -1,5 +1,17 @@
 # PP-MD Release Notes
 
+## Version 1.3.9 - 2026-11-02
+
+Accurate dependency classification. Declared prerequisites found in the declaring ZIP or another selected ZIP (by GUID, schema name, `id.*` key or form/view display name) are no longer reported missing. Standard Dataverse tables/columns/choices are platform components; Microsoft-owned or package-delivered items are target environment prerequisites; only remaining gaps are Missing. The installation guide, dependency reports, in-document Import Dependencies section and Excel exports share one analysis with evidence and actions. See [classification rules](../README.md#3-generate-and-review).
+
+## Version 1.3.8 - 2026-11-02
+
+Correct installation-guide duplicate uploads and source-data provenance. Number only unblocked solutions, distinguish table shells, resolve unambiguous friendly solution names, and place email templates after selected table/column providers using separately labelled inferred references. Exported-against versions are compatibility notes, explicit minimums remain checked, and incomplete manifests are diagnosed. Independent GPT and Claude reviews plus permutation and ZIP-based browser regressions cover the revised planner. See [usage and limitations](../README.md#3-generate-and-review).
+
+## Version 1.3.7 - 2026-11-02
+
+Optional installation guide for selected solution ZIPs: provider-first ordering, minimum-version checks, per-solution/item missing-dependency details, blocked-chain and cycle warnings, and an installation checklist. Available independently of consolidation through Document Output and Options. Root-component IDs are retained for matching; component schema names are no longer mistaken for solution names. Offline analysis requires target-environment verification before import.
+
 ## Version 1.3.6 - 2026-10-29
 
 Fixed the release-blocking mobile Menu hover contrast failure: header text and backgrounds now change together instead of passing through unreadable intermediate colours. Slow-transition export and two-theme hover regressions retain immediate WCAG checks. Application manifests, current-version documentation, release defaults, and downloads are aligned on 1.3.6, superseding the blocked v1.3.5 release.

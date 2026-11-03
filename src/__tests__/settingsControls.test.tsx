@@ -121,6 +121,29 @@ describe('settings controls and migration', () => {
     localStorage.clear();
   });
 
+  it('creates exactly one optional installation guide independently of consolidation and removes it when disabled', () => {
+    const inputs = [{ solution: { ...solution, missingDependencies: [] }, markdown: '', fileName: 'Sample.md' }];
+    const settings = { ...DEFAULT_DOCUMENTATION_SETTINGS, includeDiagrams: false, createConsolidatedDocument: false };
+    expect(rebuildResults(inputs, 'compact', documentContext, settings).some((entry) => entry.reportKind === 'installation')).toBe(false);
+    const results = rebuildResults(inputs, 'compact', documentContext, { ...settings, generateInstallationGuide: true });
+    expect(results.filter((entry) => entry.reportKind === 'installation')).toHaveLength(1);
+    expect(results.find((entry) => entry.reportKind === 'installation')?.markdown).toContain('| 1 | sample |');
+    expect(rebuildResults(results, 'compact', documentContext, settings).some((entry) => entry.reportKind === 'installation')).toBe(false);
+  });
+
+  it('deduplicates repeated source submissions and preserves original ZIP data across rebuilds', () => {
+    const original = { ...solution, missingDependencies: [], entities: [] };
+    const entry = { solution: original, markdown: '', fileName: 'Sample.md' };
+    const settings = { ...DEFAULT_DOCUMENTATION_SETTINGS, includeDiagrams: false, generateInstallationGuide: true };
+    const results = rebuildResults([entry, { ...entry }], 'compact', documentContext, settings);
+    expect(results.filter((item) => !item.isReport && !item.isDiagramCompanion)).toHaveLength(1);
+    const guide = results.find((item) => item.reportKind === 'installation')!;
+    expect(guide.markdown.match(/\| \d+ \| sample \|/g)).toHaveLength(1);
+    const base = results.find((item) => !item.isReport)!;
+    const rebuilt = rebuildResults([{ ...base, solution: { ...base.solution, entities: solution.entities } }], 'compact', documentContext, settings);
+    expect(rebuilt.find((item) => !item.isReport)?.sourceSolution?.entities).toEqual([]);
+  });
+
   it('migrates legacy saved configuration shape to schema v2 defaults', async () => {
     localStorage.setItem(
       'pp-md-doc-configurations',

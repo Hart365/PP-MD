@@ -2,7 +2,7 @@
 
 PP-MD is a Windows desktop application that turns Microsoft Power Platform solution ZIP exports into structured, portable Markdown documentation with Mermaid diagrams. No server, no cloud upload, and no licence key required.
 
-Current version: **1.3.6**. Includes local-file documentation and exports, with atomic header hover colours that preserve contrast in both themes. See [release notes](Release-Notes.md).
+Current version: **1.3.9**. Includes accurate dependency classification for installation guides and dependency reports. See [release notes](Release-Notes.md).
 
 See [Accessibility statement](ACCESSIBILITY.MD), [contributing guide](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md), and [security policy](SECURITY.md).
 
@@ -70,7 +70,8 @@ Multiple solutions can be loaded at once and reviewed across all loaded solution
 | Reports & Dashboards | Native reports and dashboards |
 | Plugins | Plugin assemblies and SDK message processing steps (stage, mode, message, entity) |
 | Diagnostics | Separate documents containing parser warnings and incomplete metadata issues |
-| Missing Dependencies | Optional installation prerequisites explicitly declared by each ZIP manifest |
+| Import Dependencies | Optional classification of each prerequisite declared by the ZIP manifest: missing, target environment prerequisite, standard platform, provided by a selected solution, or included in the same solution |
+| Solution Installation Guide | Optional cross-solution installation order, missing prerequisites with dependent solution/item, version checks and circular-dependency warnings |
 
 ---
 
@@ -122,6 +123,26 @@ These fields are included in the generated document header. They can be left bla
 ### 3. Generate and Review
 
 After uploading, the documentation is generated automatically. Use the **sidebar** on the left to switch between loaded solutions. The **Markdown Viewer** renders the output with full Mermaid diagram support, syntax highlighting, and GFM tables.
+
+Enable **Generate installation guide** under Document Output before generation, or under Options afterwards. One **Solution Installation Guide** appears under Diagnostics and Dependencies for all selected solution ZIPs, independently of consolidation and documentation scope filters. It can be viewed and exported like other reports.
+
+Each prerequisite declared in a ZIP's `MissingDependencies` manifest is classified once and shared by the installation guide, the per-solution dependency reports, the in-document **Import Dependencies** section and Excel exports:
+
+| Classification | Rule | Action |
+|---|---|---|
+| Included in the same solution | The component's ID, schema name, `id.*` key or form/view display name (with its parent table) is defined in the declaring ZIP, or the manifest names the declaring solution as owner. | None. |
+| Provided by a selected solution | The manifest names a selected solution or package as owner, or another selected ZIP defines the component. Full table owners are preferred over table shells. | Installed earlier in the order. |
+| Standard platform component | Owned by `System`/`Basic`, or a standard table, column (including `address1_*`) or choice without a selected publisher prefix or underscore. | None. |
+| Target environment prerequisite | Owned by a Microsoft managed solution or an installed application `<package>`, a Microsoft first-party component (`msdyn_`, `adx_`, ...), or an unmanaged form/view on a standard table. | Verify it exists in the target environment. |
+| Missing | Anything else, such as components owned by an unselected custom managed solution or unmanaged custom components (`solution="Active"`) absent from every selected ZIP. | Add the owning ZIP and regenerate, or install it first. |
+
+The parser reads numeric and text component types (for example `connectionreference`, `EnvironmentVariableDefinition`), `id.*` keys, display and parent display names, managed `<package>` owners, and the GUIDs of forms, views, flows, templates, web resources and other components defined in `customizations.xml` and `Workflows/`. Only missing dependencies, duplicate versions, unreadable manifests, insufficient explicit minimum versions and circular chains block a solution. When a selected owner is declared but the component cannot be found in its ZIP, a verification note is added instead of a false gap.
+
+Only unblocked solutions receive numbered installation steps. Re-uploading a solution replaces its previous matching unique-name/version/import-mode entry instead of creating duplicates. Friendly solution names resolve only when unambiguous. Exported-against versions are compatibility notes, not assumed minimums. The guide's **How Dependencies Were Evaluated** section restates these rules.
+
+Email-template table metadata and `{!table:column;}` placeholders contribute inferred ordering constraints, shown separately under **Inferred Email Template References** using the same classifications. Selected providers are placed first, standard components need no action, and a conflict with declared prerequisites requires review. Unmatched inferred references are verification notes, not missing import prerequisites.
+
+This is offline analysis, not a guarantee of successful import: ZIP manifests may not describe every runtime dependency, and template formats other than the supported placeholders may contain references that cannot be inferred. Verify target-environment versions, platform prerequisites, permissions, connection references and environment variables before installation. Reload the original ZIPs when upgrading from earlier builds to discard previously enriched in-memory data.
 
 You can also load previously generated documents directly using **Open .md** in the top header toolbar.
 

@@ -14,6 +14,7 @@ export interface ExportDocument {
   solution?: ParsedSolution;
   isReport?: boolean;
   folder?: string;
+  dependencyContext?: ParsedSolution[];
 }
 
 export function safeExportName(name: string): string {
@@ -34,7 +35,7 @@ export async function createDocumentExport(
   if (format === 'md') return new Blob([document.markdown], { type: 'text/markdown;charset=utf-8' });
   if (format === 'xlsx') {
     if (!document.solution) throw new Error('A parsed solution is required for structured Excel export.');
-    return createSolutionWorkbook(document.solution, context, { generateMissingDependencies: settings?.generateMissingDependencies, documentationSettings: settings });
+    return createSolutionWorkbook(document.solution, context, { generateMissingDependencies: settings?.generateMissingDependencies, documentationSettings: settings, dependencyContext: document.dependencyContext });
   }
   const title = document.fileName.replace(/\.md$/i, '');
   onProgress?.('Rendering documentation and diagrams...');
