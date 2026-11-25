@@ -1,5 +1,15 @@
 # PP-MD Release Notes
 
+## Version 1.3.11 - 2026-11-25
+
+The Solution Dependency and Installation Order report is backed by a reusable selected-ZIP graph analysis. It calculates provider-first installation steps, readiness layers, propagated blockers, strongly connected cycles, downstream waiters and component evidence, then shares that same model with structured Excel worksheets for installation nodes, dependency edges, blocker details and cycles. Excel workbooks now include linked contents, labelled return navigation, accessible chart alternatives, equivalent data tables, preserved continuation links, and automated WCAG-oriented OOXML checks.
+
+## Version 1.3.10 - 2026-11-23
+
+Local-solution processing now uses two bounded background workers where supported, with compatibility fallback. Dependency parsing and reports include parent/schema/component identities, table-subcomponent behavior, explicit evidence and corrected cycle membership. Excel exports now contain native table definitions, frozen panes, installation-guide worksheets and overflow continuations. Installation reports remain available only for selected ZIPs; connected Dataverse collection is still excluded.
+
+Mermaid rendering now uses explicit classic Dagre settings and validates generated SVG/background data before viewer insertion or export. See [the updated parity guide](local-file-parity.md).
+
 ## Version 1.3.9 - 2026-11-02
 
 Accurate dependency classification. Declared prerequisites found in the declaring ZIP or another selected ZIP (by GUID, schema name, `id.*` key or form/view display name) are no longer reported missing. Standard Dataverse tables/columns/choices are platform components; Microsoft-owned or package-delivered items are target environment prerequisites; only remaining gaps are Missing. The installation guide, dependency reports, in-document Import Dependencies section and Excel exports share one analysis with evidence and actions. See [classification rules](../README.md#3-generate-and-review).

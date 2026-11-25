@@ -23,6 +23,13 @@ export function dependencyComponentType(type: number | string): string {
   return textLabels[raw.toLowerCase()] ?? (raw || 'Component');
 }
 
+export function isTableSubcomponent(dependency: MissingDependency): boolean {
+  return dependency.requiredComponentType === 2
+    || dependency.requiredComponentType === 3
+    || dependency.requiredComponentType === 10
+    || ['Column', 'Relationship'].includes(dependency.requiredType);
+}
+
 export function missingDependenciesNotice(solution: ParsedSolution): string | undefined {
   if (solution.missingDependenciesError) return solution.missingDependenciesError;
   if (solution.missingDependencies === undefined) {

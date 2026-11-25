@@ -1,5 +1,5 @@
 import type { MissingDependency, ParsedSolution } from '../types/solution';
-import { collectMissingDependencies } from './missingDependencies';
+import { collectMissingDependencies, isTableSubcomponent } from './missingDependencies';
 
 export type DependencyStatus = 'included' | 'selected' | 'platform' | 'environment' | 'missing';
 
@@ -46,8 +46,11 @@ const ITEMISED_TYPES = new Set([
 
 interface ProviderIndex {
   ids: Set<string>;
+  shellIds: Set<string>;
   keys: Set<string>;
   shellTables: Set<string>;
+  allSubcomponentTableIds: Set<string>;
+  allSubcomponentTableNames: Set<string>;
 }
 
 function compareVersions(left: string, right: string): number {
@@ -63,11 +66,43 @@ function compareVersions(left: string, right: string): number {
 export function describeRequired(dependency: MissingDependency): string {
   const name = /^[0-9a-f-]{36}$/i.test(dependencyKey(dependency.requiredName)) && dependency.requiredDisplayName
     ? dependency.requiredDisplayName : dependency.requiredName;
-  const qualified = dependency.requiredParent ? `${dependency.requiredParent}.${name}`
+  const qualified = dependency.requiredParent
+    ? dependencyKey(name).startsWith(`${dependencyKey(dependency.requiredParent)}.`) ? name : `${dependency.requiredParent}.${name}`
     : dependency.requiredParentDisplayName ? `${name} (${dependency.requiredParentDisplayName})` : name;
   const label = dependency.requiredDisplayName && dependencyKey(dependency.requiredDisplayName) !== dependencyKey(name)
     && dependencyKey(dependency.requiredDisplayName) !== dependencyKey(qualified) ? ` "${dependency.requiredDisplayName}"` : '';
   return `${dependency.requiredType}: ${qualified}${label}`;
+}
+
+export function requiredComponentIdentity(dependency: MissingDependency): { table: string; column: string; schemaName: string; id: string } {
+  const key = dependencyKey(dependency.requiredName);
+  const isGuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key);
+  const parts = dependency.requiredType === 'Column' ? dependency.requiredName.split('.') : [dependency.requiredName];
+  const itemName = parts[parts.length - 1];
+  const displayOnly = !dependency.requiredSchemaName && dependency.requiredDisplayName
+    && dependencyKey(itemName) === dependencyKey(dependency.requiredDisplayName);
+  const named = !isGuid && !displayOnly ? itemName : '';
+  let table = dependency.requiredType === 'Table'
+    ? named
+    : dependency.requiredParent || (parts.length > 1 ? parts.slice(0, -1).join('.') : '');
+  if (!table && dependency.requiredParentId) table = `Unknown (table ID: ${dependency.requiredParentId})`;
+  if (dependency.requiredParentDisplayName && dependency.requiredParentDisplayName !== table) {
+    table = `${table || 'Unknown logical name'} "${dependency.requiredParentDisplayName}"`;
+  }
+  return {
+    table,
+    column: dependency.requiredType === 'Column' ? named : '',
+    schemaName: dependency.requiredSchemaName || (['Table', 'Column', 'Relationship', 'Global Option Set', 'Web Resource', 'Environment Variable', 'Connection Reference', 'Custom API'].includes(dependency.requiredType) ? named : ''),
+    id: dependency.requiredId || (isGuid ? dependency.requiredName : ''),
+  };
+}
+
+export function describeDependencyLocations(dependency: MissingDependency): string {
+  return dependency.requiredSolution
+    ? `Manifest owner: ${dependency.requiredSolution}`
+    : dependency.requiredPackages?.length
+      ? `Managed application: ${dependency.requiredPackages.map((item) => item.appName).join(', ')}`
+      : 'Not declared in another solution; classified from selected ZIP contents';
 }
 
 export function describeDependent(dependency: MissingDependency): string {
@@ -77,7 +112,10 @@ export function describeDependent(dependency: MissingDependency): string {
 }
 
 function buildIndex(solution: ParsedSolution, trackedTypes: Set<string>): ProviderIndex {
-  const index: ProviderIndex = { ids: new Set(), keys: new Set(), shellTables: new Set() };
+  const index: ProviderIndex = {
+    ids: new Set(), shellIds: new Set(), keys: new Set(), shellTables: new Set(),
+    allSubcomponentTableIds: new Set(), allSubcomponentTableNames: new Set(),
+  };
   const id = (value: string | undefined) => { if (value) index.ids.add(dependencyKey(value)); };
   const add = (type: string, name: string | undefined, parent = '') => {
     if (!name) return;
@@ -89,7 +127,14 @@ function buildIndex(solution: ParsedSolution, trackedTypes: Set<string>): Provid
   solution.solutionComponents?.forEach((component) => {
     id(component.objectId);
     add(component.componentTypeName, component.name, component.entityLogicalName);
-    if (component.componentType === 1 && component.rootComponentBehavior === 2) index.shellTables.add(dependencyKey(component.name));
+    if (component.componentType === 1 && component.rootComponentBehavior === 2) {
+      index.shellTables.add(dependencyKey(component.name));
+      if (component.objectId) index.shellIds.add(dependencyKey(component.objectId));
+    }
+    if (component.componentType === 1 && component.rootComponentBehavior === 0) {
+      if (component.objectId) index.allSubcomponentTableIds.add(dependencyKey(component.objectId));
+      index.allSubcomponentTableNames.add(dependencyKey(component.name));
+    }
   });
   solution.entities.forEach((entity) => {
     add('Table', entity.logicalName);
@@ -145,7 +190,9 @@ export function analyzeDependencies(solutions: ParsedSolution[]): DependencyAnal
   const indexFor = (solution: ParsedSolution) => indexes.get(solution) ?? buildIndex(solution, trackedTypes);
   const match = (solution: ParsedSolution, dependency: MissingDependency): 'full' | 'shell' | undefined => {
     const index = indexFor(solution);
-    if ([dependency.requiredId, ...(dependency.requiredKeys ?? [])].some((value) => value && index.ids.has(dependencyKey(value)))) return 'full';
+    const matchedIds = [dependency.requiredId, ...(dependency.requiredKeys ?? [])]
+      .filter((value): value is string => Boolean(value) && index.ids.has(dependencyKey(value)));
+    if (matchedIds.length) return matchedIds.some((value) => !index.shellIds.has(dependencyKey(value))) ? 'full' : 'shell';
     const type = dependencyKey(dependency.requiredType);
     const parents = dependency.requiredParent ? [dependencyKey(dependency.requiredParent)]
       : dependency.requiredParentDisplayName ? selected.flatMap((candidate) => candidate.entities)
@@ -153,19 +200,28 @@ export function analyzeDependencies(solutions: ParsedSolution[]): DependencyAnal
         .map((entity) => dependencyKey(entity.logicalName)) : [''];
     const names = [dependency.requiredName, ...(dependency.requiredKeys ?? []), dependency.requiredDisplayName].map(dependencyKey).filter(Boolean);
     const typeKeys = trackedTypes.has(type) ? [type] : [type, '*'];
+    const allSubcomponents = isTableSubcomponent(dependency) && (
+      (dependency.requiredParentId && index.allSubcomponentTableIds.has(dependencyKey(dependency.requiredParentId)))
+      || [dependency.requiredParent, ...(dependency.requiredRelatedTables ?? [])]
+        .some((table) => table && index.allSubcomponentTableNames.has(dependencyKey(table)))
+    );
+    if (allSubcomponents) return 'full';
     const found = parents.some((parent) => names.some((name) => typeKeys.some((candidate) => index.keys.has(`${candidate}|${parent}|${name}`))));
     if (!found) return undefined;
     return type === 'table' && names.some((name) => index.shellTables.has(name)) ? 'shell' : 'full';
   };
 
   const hasCustomPrefix = (name: string) => name.includes('_') && customPrefixes.has(name.split('_')[0]);
-  const standardTable = (name: string) => !!name && !name.includes('_');
+  const standardTable = (name: string) => /^[a-z][a-z0-9]*$/i.test(name);
   const isStandard = (dependency: MissingDependency) => {
     const name = dependencyKey(dependency.requiredName);
     const parent = dependencyKey(dependency.requiredParent);
     if (hasCustomPrefix(name) || hasCustomPrefix(parent)) return false;
     if (dependency.requiredType === 'Table') return standardTable(name);
-    if (dependency.requiredType === 'Column') return standardTable(parent) && (!name.includes('_') || /^address\d_/.test(name));
+    if (dependency.requiredType === 'Column') {
+      const column = name.startsWith(`${parent}.`) ? name.slice(parent.length + 1) : name;
+      return standardTable(parent) && /^[a-z][a-z0-9_]*$/i.test(column) && (!column.includes('_') || /^address\d_/.test(column));
+    }
     if (dependency.requiredType === 'Global Option Set') return standardTable(name);
     return false;
   };

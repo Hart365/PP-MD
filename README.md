@@ -2,7 +2,7 @@
 
 PP-MD is a Windows desktop application that turns Microsoft Power Platform solution ZIP exports into structured, portable Markdown documentation with Mermaid diagrams. No server, no cloud upload, and no licence key required.
 
-Current version: **1.3.9**. Includes accurate dependency classification for installation guides and dependency reports. See [release notes](Release-Notes.md).
+Current version: **1.3.11**. Includes the Solution Dependency and Installation Order report, worker-backed solution parsing, and enhanced accessible Excel exports. See [release notes](Release-Notes.md).
 
 See [Accessibility statement](ACCESSIBILITY.MD), [contributing guide](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md), and [security policy](SECURITY.md).
 
@@ -34,7 +34,7 @@ Documentation. Usually a task people try to avoid, often difficult to get consis
 
 This is where PP-MD steps in to the mix. Load the app, configure or load your document information (project, sprint, client etc) and document options, and then select solution ZIP files and click "Generate Documentation" to get a full suite of Markdown documentation automatically and consistently.
 
-PP-MD parses you solution zip files and generates documentation that covers:
+PP-MD parses your solution ZIP files and generates documentation that covers:
 
 - An auto-generated **Entity Relationship Diagram** (ERD) rendered as a Mermaid diagram with the ability to have diagrams in a companion document to the core solution document
 - Every **Dataverse table** with its columns, data types, and relationships
@@ -48,7 +48,7 @@ PP-MD parses you solution zip files and generates documentation that covers:
 - Column filtering controls, including **Include/Exclude Default Columns** (system columns), while always retaining relationship key columns in relationship documentation and ERD relationship context
 - Document Options toggles to include/exclude Flows & Automation, Apps, Security, Integration, Plugins, Reports & Dashboards, Web Resources, Desktop Flows & Dataflows, Custom APIs & Offline Profiles, and Copilot Studio Agents & AI Models
 
-Multiple solutions can be loaded at once and reviewed across all loaded solutions.
+Multiple solutions can be loaded at once and reviewed across all loaded solutions. CPU-intensive ZIP parsing runs in a bounded background worker pool, while progress remains visible and worker failures fall back to compatibility mode.
 
 ---
 
@@ -70,8 +70,8 @@ Multiple solutions can be loaded at once and reviewed across all loaded solution
 | Reports & Dashboards | Native reports and dashboards |
 | Plugins | Plugin assemblies and SDK message processing steps (stage, mode, message, entity) |
 | Diagnostics | Separate documents containing parser warnings and incomplete metadata issues |
-| Import Dependencies | Optional classification of each prerequisite declared by the ZIP manifest: missing, target environment prerequisite, standard platform, provided by a selected solution, or included in the same solution |
-| Solution Installation Guide | Optional cross-solution installation order, missing prerequisites with dependent solution/item, version checks and circular-dependency warnings |
+| Import Dependencies | Optional classification of each prerequisite declared by the ZIP manifest: missing, target environment prerequisite, standard platform, provided by a selected solution, or included in the same solution; includes dependent/required IDs, schema names and manifest/package evidence |
+| Solution Dependency and Installation Order report | Optional provider-first cross-solution installation order, dependency readiness layers, missing prerequisites, minimum-version checks, strongly connected cycle groups, downstream waiters and component-level evidence calculated from the selected ZIPs |
 
 ---
 
@@ -103,7 +103,7 @@ In PP-MD, either:
 - **Drag and drop** one or more `.zip` files onto the drop zone, or
 - Click **Browse** to open a file picker
 
-Multiple ZIPs can be loaded in a single batch. Each file is parsed independently with its own progress indicator.
+Multiple ZIPs can be loaded in a single batch. Up to two files are parsed concurrently in background workers, each with its own progress indicator. If the host cannot run workers, PP-MD explicitly switches to local compatibility processing and continues without discarding the files.
 
 ### 2. Fill in Document Context
 
@@ -124,7 +124,7 @@ These fields are included in the generated document header. They can be left bla
 
 After uploading, the documentation is generated automatically. Use the **sidebar** on the left to switch between loaded solutions. The **Markdown Viewer** renders the output with full Mermaid diagram support, syntax highlighting, and GFM tables.
 
-Enable **Generate installation guide** under Document Output before generation, or under Options afterwards. One **Solution Installation Guide** appears under Diagnostics and Dependencies for all selected solution ZIPs, independently of consolidation and documentation scope filters. It can be viewed and exported like other reports.
+Enable **Generate installation guide** under Document Output before generation, or under Options afterwards. One **Solution Dependency and Installation Order report** appears under Diagnostics and Dependencies for exactly the solutions selected for documentation, independently of consolidation and documentation scope filters. The report calculates a complete provider-first graph, a sequential numbered order, readiness layers, target-environment checks, missing dependencies, strongly connected circular dependency groups and downstream waiting solutions. It can be viewed and exported as Markdown or a structured Excel workbook.
 
 Each prerequisite declared in a ZIP's `MissingDependencies` manifest is classified once and shared by the installation guide, the per-solution dependency reports, the in-document **Import Dependencies** section and Excel exports:
 
@@ -136,9 +136,11 @@ Each prerequisite declared in a ZIP's `MissingDependencies` manifest is classifi
 | Target environment prerequisite | Owned by a Microsoft managed solution or an installed application `<package>`, a Microsoft first-party component (`msdyn_`, `adx_`, ...), or an unmanaged form/view on a standard table. | Verify it exists in the target environment. |
 | Missing | Anything else, such as components owned by an unselected custom managed solution or unmanaged custom components (`solution="Active"`) absent from every selected ZIP. | Add the owning ZIP and regenerate, or install it first. |
 
-The parser reads numeric and text component types (for example `connectionreference`, `EnvironmentVariableDefinition`), `id.*` keys, display and parent display names, managed `<package>` owners, and the GUIDs of forms, views, flows, templates, web resources and other components defined in `customizations.xml` and `Workflows/`. Only missing dependencies, duplicate versions, unreadable manifests, insufficient explicit minimum versions and circular chains block a solution. When a selected owner is declared but the component cannot be found in its ZIP, a verification note is added instead of a false gap.
+The parser reads numeric and text component types (for example `connectionreference`, `EnvironmentVariableDefinition`), `id.*` keys, display and parent display names, parent IDs/schema names/component types, managed `<package>` owners, and the GUIDs of forms, views, flows, templates, web resources and other components defined in `customizations.xml` and `Workflows/`. Matching understands table subcomponents included through root-component behavior and distinguishes a table shell from full ownership. Only missing dependencies, duplicate versions, unreadable manifests, insufficient explicit minimum versions and actual circular members block a solution. Downstream dependants are reported as waiting for blocked prerequisites. When a selected owner is declared but the component cannot be found in its ZIP, a verification note is added instead of a false gap.
 
 Only unblocked solutions receive numbered installation steps. Re-uploading a solution replaces its previous matching unique-name/version/import-mode entry instead of creating duplicates. Friendly solution names resolve only when unambiguous. Exported-against versions are compatibility notes, not assumed minimums. The guide's **How Dependencies Were Evaluated** section restates these rules.
+
+The planner retains the evidence graph behind the document. Its Excel workbook includes **Installation Nodes**, **Dependency Edges**, **Blocker Details**, and **Circular Dependencies** worksheets in addition to the Markdown-derived guide sections. Actual cycle members are identified with a graph strongly-connected-component calculation; a solution downstream of a cycle is reported as waiting for a blocked prerequisite and is not incorrectly included in that cycle.
 
 Email-template table metadata and `{!table:column;}` placeholders contribute inferred ordering constraints, shown separately under **Inferred Email Template References** using the same classifications. Selected providers are placed first, standard components need no action, and a conflict with declared prerequisites requires review. Unmatched inferred references are verification notes, not missing import prerequisites.
 
@@ -161,11 +163,11 @@ Use the single **⬇️ Export ▾** menu in the Markdown viewer toolbar to expo
 - **Export .md**: saves the raw Markdown source.
 - **Export .html**: saves standalone sanitised HTML with embedded styles and rendered Mermaid diagrams.
 - **Export .pdf**: saves a searchable, paginated text PDF with diagrams, lists, tables, links, and readable source fallbacks.
-- **Export .xlsx**: saves a structured solution workbook with inventories, global choices, per-table column worksheets, table properties, navigation links, and optional table-scoped missing dependencies. Imported Markdown and report documents retain the Markdown-table Excel fallback.
+- **Export .xlsx**: saves a structured solution workbook with standard Excel tables, inventories, global choices, per-table column worksheets, table properties, frozen headers and filters. The Overview includes a linked **Table of Contents**; every worksheet provides **Back to Contents**, while table sheets also retain **Back to Tables**. Dependency rows include dependent/required IDs and evidence. Text beyond Excel's per-cell limit is split into a linked **Text Continuations** worksheet with return links and explanatory comments. Installation-guide reports export as a sectioned workbook with a linked contents list, decision dashboard, accessible chart data tables, native charts, readiness/cycle/evidence sheets and the same back-navigation controls; imported Markdown and other reports retain a Markdown-compatible fallback.
 
 The new searchable PDF path does not claim PDF/UA conformance or complete tagging. The existing Electron tagged-PDF utility is retained for compatibility. See [Accessibility](ACCESSIBILITY.MD).
 
-Use **Export All** for Markdown, HTML, PDF, or Excel ZIP archives, or **By Category** for self-contained category documents organised under solution and consolidated folders. Excel batch archives include diagnostics and dependency reports as Markdown companions. Duplicate filenames are disambiguated rather than overwritten.
+Use **Export All** for Markdown, HTML, PDF, or Excel ZIP archives, or **By Category** for self-contained category documents organised under solution and consolidated folders. Excel batch archives include solution and installation-guide workbooks; diagnostics and dependency reports are included as Markdown companions. Duplicate filenames are disambiguated rather than overwritten.
 
 ### 5. Consolidated Report
 
@@ -179,7 +181,7 @@ When two or more solutions are loaded, the **Consolidated** sidebar section cont
 
 Clear **Create All Selected Solutions document** to generate individual documents only. **Options** can update output settings after generation. Optional missing-dependency reports retain each source solution's declared prerequisites; they do not infer dependencies from runtime references or test whether a target environment already satisfies them. Matching peer components can fill missing metadata without adding unrelated top-level components to an individual solution.
 
-Choose a diagram colour theme or disable diagrams. Rendering runs lazily in the background, pauses while scrolling, prioritises visible diagrams, and retains at most 100 rendered SVGs. **Cancel** remains accessible outside the narrow-screen toolbar menu and stops at the next processing/export checkpoint. Completed solution documents are retained; unfinished exports are not downloaded.
+Choose a diagram colour theme or disable diagrams. Rendering runs lazily in the background, pauses while scrolling, prioritises visible diagrams, and retains at most 100 rendered SVGs. Mermaid uses classic Dagre-compatible output and validates its generated SVG/background before insertion, preventing transparent or malformed export diagrams. **Cancel** remains accessible outside the narrow-screen toolbar menu and stops at the next processing/export checkpoint. Completed solution documents are retained; unfinished exports are not downloaded.
 
 Section scope, attribute selection, metadata-column visibility, and security-role filters apply to structured Excel exports as well as documentation. Summary-mode workbooks omit detailed per-table worksheets. Diagram theme choices are retained in exported Mermaid; changing a custom palette selects the base theme required for custom theme variables.
 
@@ -227,12 +229,14 @@ The ERD can be rendered in two modes, toggled in the toolbar:
 
 | Layer | Technology |
 |---|---|
-| Desktop shell | Electron 41 |
+| Desktop shell | Electron 43 |
 | Frontend | React 19 + TypeScript 6 + Vite 8 |
 | ZIP parsing | JSZip |
+| Background processing | Inline Web Workers with two-job concurrency and compatibility fallback |
 | XML parsing | fast-xml-parser (XXE-safe configuration) |
 | Markdown rendering | react-markdown + remark-gfm + rehype-raw |
 | Diagram rendering | Mermaid 11 |
+| Spreadsheet export | xlsx-js-style plus PP-MD OOXML packaging for real Excel tables and frozen panes |
 | Packaging | electron-builder (portable + NSIS installer) |
 
 All processing runs **entirely locally** — no data leaves your machine.
@@ -241,7 +245,7 @@ All processing runs **entirely locally** — no data leaves your machine.
 
 ## Building from Source
 
-**Prerequisites:** Node.js 20+, npm, Windows (for packaging)
+**Prerequisites:** Node.js 22+, npm, Windows (for packaging)
 
 ```powershell
 # Install dependencies

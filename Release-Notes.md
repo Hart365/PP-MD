@@ -1,5 +1,21 @@
 # PP-MD Release Notes
 
+## Version 1.3.11 - 2026-11-25
+
+- Fix Excel return navigation so only the explicit “Back to Contents” cell links back; preserve summary/table headers and keep the link outside merged title ranges. Add an automated WCAG-oriented workbook gate covering text contrast, unique table headers, descriptive links, chart alternatives/equivalent data, and merged-range boundaries.
+- Bring Excel exports to PPTB Edition layout parity: linked Overview contents, Back to Contents controls, preserved Back to Tables navigation, bidirectional text-continuation links/comments, robust Markdown table parsing, wrap/row-height formatting, a linked installation dashboard, native readiness/blocker/impact charts with equivalent data tables, and expanded installation evidence worksheets.
+- Replace the installation guide's embedded calculation with a reusable offline planner for the exact selected ZIP set, including provider-first steps, dependency readiness layers, blocker propagation, strongly connected cycle groups, downstream waiters and component evidence.
+- Export the same installation analysis into structured Excel worksheets for nodes, dependency edges, blocker details and circular dependencies, preventing Markdown and workbook drift.
+
+## Version 1.3.10 - 2026-11-23
+
+- Parse multiple solution ZIPs concurrently in a bounded, cancellable worker pool; fall back explicitly to local compatibility processing when a host cannot create or run workers.
+- Extend ZIP dependency detection with required component types, schema names, parent IDs and table-subcomponent behavior. Correctly distinguish full table ownership, table shells and downstream consumers waiting on a cyclic or otherwise blocked provider.
+- Expand dependency and installation reports with component identities, dependent/required IDs, expected owners, manifest/package evidence and a precise Circular Dependencies section.
+- Produce more capable Excel workbooks: native Excel table definitions, frozen headers, valid unique table headers, richer table-scoped dependency evidence, sectioned installation-guide workbooks and referenced text continuations for values exceeding Excel's 32,767-character cell limit.
+- Make Mermaid classic/Dagre configuration explicit, validate generated SVG dimensions/backgrounds, and add a reliable solid background for viewer and export rendering.
+- Synchronise these local-solution-mode improvements from PP-MD-PPTB-Edition while retaining PP-MD's standalone Electron architecture and excluding connected Dataverse features.
+
 ## Version 1.3.9 - 2026-11-02
 
 - Stop reporting dependencies as missing when they are defined in the declaring solution or another selected solution: forms, views, flows and templates now match by GUID, newer components by `id.*` keys, and forms/views by display name with parent table.

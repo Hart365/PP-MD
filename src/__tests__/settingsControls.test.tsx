@@ -139,6 +139,8 @@ describe('settings controls and migration', () => {
     expect(results.filter((item) => !item.isReport && !item.isDiagramCompanion)).toHaveLength(1);
     const guide = results.find((item) => item.reportKind === 'installation')!;
     expect(guide.markdown.match(/\| \d+ \| sample \|/g)).toHaveLength(1);
+    expect(guide.installationAnalysis?.installable).toHaveLength(1);
+    expect(guide.installationAnalysis?.prerequisites.has(guide.installationAnalysis.selected[0])).toBe(true);
     const base = results.find((item) => !item.isReport)!;
     const rebuilt = rebuildResults([{ ...base, solution: { ...base.solution, entities: solution.entities } }], 'compact', documentContext, settings);
     expect(rebuilt.find((item) => !item.isReport)?.sourceSolution?.entities).toEqual([]);

@@ -46,7 +46,7 @@ for (const width of [1280, 320]) {
     await expect(viewer.getByRole('heading', { name: 'Missing Dependencies', exact: true })).toBeAttached();
     await expect(viewer.getByText('No missing dependencies.', { exact: false })).toBeVisible();
     await expect(viewer.getByRole('heading', { name: 'Standard Platform Components', exact: true })).toBeAttached();
-    await expect(viewer.getByRole('cell', { name: 'Table: account', exact: true })).toHaveCount(2);
+    await expect(viewer.getByRole('cell', { name: 'Table: account', exact: true })).toHaveCount(4);
     await expect(viewer.getByRole('heading', { name: 'Blocked Solutions', exact: true })).toHaveCount(0);
     await expect(viewer.getByRole('cell', { name: /^\d+$/ })).not.toHaveCount(0);
     const analysis = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();

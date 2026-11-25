@@ -1,10 +1,11 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { createSolutionWorkbook } from '../api/excelExporter';
+import { createInstallationGuideWorkbook, createPackagedSolutionWorkbook } from '../api/excelExporter';
 import { createRenderedDocumentationPdf } from '../api/pdfExporter';
 import { buildStandaloneHtmlDocument, renderMarkdownDocument, svgMarkupToPngDataUrl } from '../api/documentRendering';
 import type { DocumentContext, DocumentationSettings } from '../generator/markdownGenerator';
 import type { ParsedSolution } from '../types/solution';
+import type { InstallationAnalysis } from '../generator/installationAnalysis';
 
 export type ExportFormat = 'md' | 'html' | 'pdf' | 'xlsx';
 
@@ -13,6 +14,8 @@ export interface ExportDocument {
   fileName: string;
   solution?: ParsedSolution;
   isReport?: boolean;
+  reportKind?: 'summary' | 'diagnostics' | 'dependencies' | 'installation';
+  installationAnalysis?: InstallationAnalysis;
   folder?: string;
   dependencyContext?: ParsedSolution[];
 }
@@ -34,8 +37,9 @@ export async function createDocumentExport(
   signal?.throwIfAborted();
   if (format === 'md') return new Blob([document.markdown], { type: 'text/markdown;charset=utf-8' });
   if (format === 'xlsx') {
+    if (document.reportKind === 'installation') return createInstallationGuideWorkbook(document.markdown, document.installationAnalysis);
     if (!document.solution) throw new Error('A parsed solution is required for structured Excel export.');
-    return createSolutionWorkbook(document.solution, context, { generateMissingDependencies: settings?.generateMissingDependencies, documentationSettings: settings, dependencyContext: document.dependencyContext });
+    return createPackagedSolutionWorkbook(document.solution, context, { generateMissingDependencies: settings?.generateMissingDependencies, documentationSettings: settings, dependencyContext: document.dependencyContext });
   }
   const title = document.fileName.replace(/\.md$/i, '');
   onProgress?.('Rendering documentation and diagrams...');
@@ -66,7 +70,7 @@ export async function downloadDocumentBatch(
   const usedNames = new Set<string>();
   for (const [index, document] of documents.entries()) {
     signal?.throwIfAborted();
-    const actualFormat = format === 'xlsx' && document.isReport ? 'md' : format;
+    const actualFormat = format === 'xlsx' && document.isReport && document.reportKind !== 'installation' ? 'md' : format;
     const folder = document.folder ? document.folder.split('/').map(safeExportName).join('/') + '/' : '';
     const baseName = folder + safeExportName(document.fileName.replace(/\.md$/i, ''));
     let name = `${baseName}.${actualFormat}`;

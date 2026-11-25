@@ -20,6 +20,8 @@ The target for PP-MD's interface is [WCAG 2.2 Level AA](https://www.w3.org/TR/WC
 
 The app already includes keyboard file selection alongside drag and drop, focus styles, status announcements, light and dark themes, reduced-motion support, document search, and diagram source fallbacks. Export and Options dropdowns have full-row hover highlights, keyboard-focus outlines, and dismissal with Escape or an outside click. There are automated checks for selected text and interface colour combinations in both themes, including highlighted dropdown states.
 
+Solution ZIPs can now be parsed concurrently in background workers, with per-file progress and cancellation checkpoints. If workers are unavailable, the app exposes the fallback through a status message and continues locally. Excel solution and installation-guide exports use structured worksheets and native Excel tables, but that alone does not establish screen-reader navigation, meaningful reading order, or workbook accessibility.
+
 Those are useful foundations. They are **not a declaration of full WCAG conformance**, and a passing automated check doesn't tell me whether you can actually finish your task.
 
 ## Known limitations and gaps
@@ -44,7 +46,7 @@ Markdown or HTML export may be a more useful starting point, depending on your t
 
 ### Large documents and other exports
 
-Wide metadata tables and complex diagrams can be difficult to navigate or magnify. Excel exports and generated HTML haven't been comprehensively verified with assistive technology. Imported Markdown and descriptions from your solution can also bring their own Accessibility problems.
+Wide metadata tables and complex diagrams can be difficult to navigate or magnify. Excel exports now have visible worksheet titles, frozen headers, named worksheets, unique native-table headers, descriptive internal-link text, contents navigation, charts with titles/descriptions and equivalent data tables, and continuation worksheets for very long text. Automated OOXML regression checks verify these structures, the required non-colour labels, palette contrast, link purpose, and that navigation links do not absorb merged title/header ranges. They do not replace manual verification in Microsoft Excel with Narrator, NVDA or other assistive technology. Imported Markdown and descriptions from your solution can also bring their own Accessibility problems.
 
 ### Desktop application and assistive technology
 
@@ -52,7 +54,7 @@ PP-MD is a standalone Windows desktop application built with Electron. It proces
 
 The repository includes automated Chromium accessibility checks and regression checks for keyboard interaction, selected light/dark theme states, narrow-screen reflow, and Windows forced-colours rendering. Those checks cover particular scenarios, not every screen, export, or assistive-technology combination.
 
-End-to-end screen-reader behaviour in the packaged Windows app, keyboard focus around native file dialogs, 200% text resizing, and 400% zoom still need wider manual validation. There isn't a verified Windows, Electron, browser, and assistive-technology support matrix to publish yet.
+End-to-end screen-reader behaviour in the packaged Windows app, keyboard focus around native file dialogs, 200% text resizing, 400% zoom, and screen-reader/keyboard navigation in generated Excel workbooks still need wider manual validation. There isn't a verified Windows, Electron, Excel, browser, and assistive-technology support matrix to publish yet.
 
 If you're unsure whether a barrier belongs to PP-MD or another part of your setup, report it here anyway. I can help work out where it needs to go.
 

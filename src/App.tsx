@@ -29,7 +29,7 @@ import { SolutionSidebar }   from './components/SolutionSidebar';
 import { ThemeToggle }       from './components/ui/ThemeToggle';
 import { HeaderDropdown } from './components/ui/HeaderDropdown';
 import { UpdateChecker }     from './components/ui/UpdateChecker';
-import { parseSolutionZip }  from './parser/solutionParser';
+import { parseSolutionsConcurrently } from './workers/parseSolutions';
 import {
   DEFAULT_DOCUMENTATION_SETTINGS,
   DEFAULT_MERMAID_PALETTE,
@@ -46,7 +46,8 @@ import {
   type MermaidPaletteSettings,
 } from './generator/markdownGenerator';
 import type { ParsedSolution } from './types/solution';
-import { generateInstallationMarkdown } from './generator/localDocumentation';
+import { renderInstallationMarkdown } from './generator/localDocumentation';
+import { analyzeInstallation, type InstallationAnalysis } from './generator/installationAnalysis';
 import { downloadDocument, downloadDocumentBatch, type ExportFormat, type ExportDocument } from './utils/documentExport';
 import appIcon from './assets/app-icon.svg';
 import packageJson from '../package.json';
@@ -75,6 +76,7 @@ interface SolutionResult {
   isImportedMarkdown?: boolean;
   isReport?: boolean;
   reportKind?: 'summary' | 'diagnostics' | 'dependencies' | 'installation';
+  installationAnalysis?: InstallationAnalysis;
 }
 
 type ErdMode = 'compact' | 'detailed-relationships';
@@ -471,13 +473,15 @@ export function rebuildResults(
     ];
   });
   if (documentationSettings.generateInstallationGuide && sourceResults.length) {
+    const installationAnalysis = analyzeInstallation(dependencyContext);
     reports.push({
       ...sourceResults[0],
       solution: {
         ...sourceResults[0].solution,
         metadata: { ...sourceResults[0].solution.metadata, displayName: 'Solution Installation Guide' },
       },
-      markdown: generateInstallationMarkdown(dependencyContext),
+      installationAnalysis,
+      markdown: renderInstallationMarkdown(installationAnalysis),
       fileName: 'Solution Installation Guide.md',
       isReport: true,
       reportKind: 'installation',
@@ -561,6 +565,7 @@ export default function App() {
   const [isColumnMetadataExpanded,  setIsColumnMetadataExpanded]  = useState<boolean>(true);
   const openMarkdownInputRef = useRef<HTMLInputElement>(null);
   const operationRef = useRef<AbortController | null>(null);
+  const activeFileNameRef = useRef<string>('');
   const [batchExportFormat, setBatchExportFormat] = useState<ExportFormat | null>(null);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
 
@@ -726,12 +731,7 @@ export default function App() {
 
   // ── File processing ───────────────────────────────────────────────────────
 
-  /**
-   * Processes an array of ZIP files sequentially, updating progress state
-   * as each file is parsed.
-   *
-   * @param files - Files selected by the user
-   */
+  /** Processes selected ZIP files concurrently with per-file progress. */
   const handleFilesSelected = useCallback(async (files: File[]) => {
     const sortedFiles = sortFilesByName(files);
     const controller = new AbortController();
@@ -749,18 +749,26 @@ export default function App() {
 
     const newResults: SolutionResult[] = [];
 
-    for (let i = 0; i < sortedFiles.length; i++) {
-      if (controller.signal.aborted) break;
+    const outcomes = await parseSolutionsConcurrently(sortedFiles, controller.signal, {
+      onProgress: (index, percent) => {
+        updateProcessingEntry(index, (entry) => ({ ...entry, progress: percent }));
+      },
+      onSettled: (index, outcome) => {
+        updateProcessingEntry(index, (entry) => outcome.status === 'fulfilled'
+          ? { ...entry, progress: 100 }
+          : { ...entry, progress: 0, error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason) });
+      },
+      onFallback: (message) => setStatusMsg(message),
+    });
+
+    for (let i = 0; i < outcomes.length; i++) {
       const file = sortedFiles[i];
+      const outcome = outcomes[i];
+      if (controller.signal.aborted) break;
+      if (!outcome || outcome.status === 'rejected') continue;
 
       try {
-        setStatusMsg(`Parsing ${file.name}…`);
-
-        const solution = await parseSolutionZip(file, (pct) => {
-          // Update progress for this specific file
-          updateProcessingEntry(i, (entry) => ({ ...entry, progress: pct }));
-        }, controller.signal);
-
+        const solution = outcome.value;
         setStatusMsg(`Generating documentation for ${file.name}…`);
         const markdown = generateMarkdown(solution, { erdMode, documentContext, documentationSettings });
 
@@ -785,8 +793,6 @@ export default function App() {
           }
         }
 
-        // Mark as complete
-        updateProcessingEntry(i, (entry) => ({ ...entry, progress: 100 }));
       } catch (err: unknown) {
         if (controller.signal.aborted) break;
         const msg = (err as Error).message ?? 'Unknown error';
@@ -802,7 +808,14 @@ export default function App() {
       const nextResults = rebuildResults([...mergedBase, ...existingImported], erdMode, documentContext, documentationSettings);
 
       setResults(nextResults);
-      setActiveIdx(nextResults.length > 1 && nextResults[0].isConsolidated ? 0 : Math.max(0, nextResults.length - 1));
+      const retainedIndex = nextResults.findIndex((entry) => entry.fileName === activeFileNameRef.current);
+      const nextActiveIndex = retainedIndex >= 0
+        ? retainedIndex
+        : nextResults.length > 1 && nextResults[0].isConsolidated
+          ? 0
+          : Math.max(0, nextResults.length - 1);
+      setActiveIdx(nextActiveIndex);
+      activeFileNameRef.current = nextResults[nextActiveIndex]?.fileName ?? '';
       const count  = newResults.filter((entry) => !entry.isDiagramCompanion).length;
       const failed = sortedFiles.length - count;
       setStatusMsg(
@@ -960,6 +973,7 @@ export default function App() {
   const handleSelectResult = useCallback((index: number) => {
     const next = results[index];
     if (!next) return;
+    activeFileNameRef.current = next.fileName;
 
     if (!isLargeOrComplexMarkdown(next.markdown)) {
       setActiveIdx(index);
@@ -967,15 +981,13 @@ export default function App() {
       return;
     }
 
+    setActiveIdx(index);
     setIsViewerLoading(true);
 
-    // Yield one frame so the loading indicator can paint before heavy render work.
+    // Keep selection immediate so follow-up actions use the chosen document.
     window.setTimeout(() => {
-      setActiveIdx(index);
-      window.setTimeout(() => {
-        setIsViewerLoading(false);
-      }, 300);
-    }, 50);
+      setIsViewerLoading(false);
+    }, 300);
   }, [results]);
 
   // ── Export ────────────────────────────────────────────────────────────────
@@ -1811,7 +1823,13 @@ export default function App() {
                   onExport={handleExport}
                   onExportHtml={() => void handleExportFormat('html')}
                   onExportPdf={() => void handleExportFormat('pdf')}
-                  onExportExcel={activeResult.isImportedMarkdown || activeResult.isReport || activeResult.isDiagramCompanion ? undefined : () => void handleExportFormat('xlsx')}
+                  onExportExcel={
+                    activeResult.isImportedMarkdown
+                    || activeResult.isDiagramCompanion
+                    || (activeResult.isReport && activeResult.reportKind !== 'installation')
+                      ? undefined
+                      : () => void handleExportFormat('xlsx')
+                  }
                   diagramTheme={documentationSettings.mermaidColourTheme}
                   onStatusMessage={setStatusMsg}
                 />

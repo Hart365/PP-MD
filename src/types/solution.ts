@@ -934,8 +934,12 @@ export interface MissingDependency {
   tableLogicalNames: string[];
   requiredParent?: string;
   requiredParentDisplayName?: string;
+  requiredParentId?: string;
+  requiredRelatedTables?: string[];
   dependentId?: string;
   requiredId?: string;
+  requiredSchemaName?: string;
+  requiredComponentType?: number;
   /** Values of id.<key> attributes used by newer component types */
   requiredKeys?: string[];
   /** Managed application packages that deliver the required component */

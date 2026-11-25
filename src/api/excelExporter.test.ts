@@ -3,9 +3,13 @@ import * as XLSX from 'xlsx-js-style';
 import JSZip from 'jszip';
 import { XMLParser } from 'fast-xml-parser';
 import { AttributeType } from '../types/solution';
-import { buildTableMetadataBlocks, createSolutionWorkbook, NOT_AVAILABLE_PREFIX } from './excelExporter';
+import {
+  buildTableMetadataBlocks, createInstallationGuideWorkbook, createPackagedSolutionWorkbook,
+  createSolutionWorkbook, NOT_AVAILABLE_PREFIX,
+} from './excelExporter';
 import type { ParsedSolution } from '../types/solution';
 import { DEFAULT_DOCUMENTATION_SETTINGS } from '../generator/markdownGenerator';
+import { analyzeInstallation } from '../generator/installationAnalysis';
 
 const solution: ParsedSolution = {
   metadata: { uniqueName: 'sample', displayName: 'Sample', version: '1.0.0.0', publisherName: 'Test', isManaged: false, dependencies: [], componentInventory: [] },
@@ -16,7 +20,170 @@ const solution: ParsedSolution = {
   agents: [], aiModels: [], desktopFlows: [], dataflows: [], customApis: [], offlineProfiles: [],
 };
 
+function rowCellsByValue(sheet: XLSX.WorkSheet, value: string): XLSX.CellObject[] {
+  return Object.entries(sheet)
+    .filter(([address, cell]) => !address.startsWith('!') && (cell as XLSX.CellObject)?.v === value)
+    .map(([, cell]) => cell as XLSX.CellObject);
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const luminance = (hex: string) => {
+    const channels = hex.match(/.{2}/g)!.map((channel) => Number.parseInt(channel, 16) / 255)
+      .map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  };
+  const [lighter, darker] = [luminance(foreground), luminance(background)].sort((left, right) => right - left);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 describe('Excel solution export', () => {
+  it('packages structured Excel tables and frozen headers in the downloadable workbook', async () => {
+    const blob = await createPackagedSolutionWorkbook(withTables);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    expect(Object.keys(zip.files).some((name) => /^xl\/tables\/table\d+\.xml$/.test(name))).toBe(true);
+    const sheet = await zip.file('xl/worksheets/sheet1.xml')!.async('string');
+    expect(sheet).toContain('<pane');
+    const workbook = await readWorkbook(blob);
+    const overview = XLSX.utils.sheet_to_json<string[]>(workbook.Sheets.Overview, { header: 1, blankrows: true });
+    const contentsTitle = overview.findIndex((row) => row[0] === 'Table of Contents');
+    expect(contentsTitle).toBeGreaterThan(0);
+    expect(overview.slice(contentsTitle + 2).flat()).toEqual(expect.arrayContaining(['Tables', 'Integration']));
+    expect(rowCellsByValue(workbook.Sheets.Tables, 'Back to Contents')).toHaveLength(1);
+    expect(rowCellsByValue(workbook.Sheets.Zebra, 'Back to Contents')).toHaveLength(1);
+    expect(workbook.Sheets.Zebra.E1?.v).toContain('Back to Tables');
+    expect(workbook.Sheets.Tables.E1?.v).toBe('Ownership');
+    expect(workbook.Sheets.Tables.E1?.l).toBeUndefined();
+    const contentsCell = rowCellsByValue(workbook.Sheets.Zebra, 'Back to Contents')[0];
+    const contentsColumn = Object.keys(workbook.Sheets.Zebra).find((address) =>
+      workbook.Sheets.Zebra[address] === contentsCell)!;
+    const contentsAddress = XLSX.utils.decode_cell(contentsColumn);
+    const contentsMerge = workbook.Sheets.Zebra['!merges']?.find((merge) =>
+      merge.s.r <= contentsAddress.r && merge.e.r >= contentsAddress.r
+      && merge.s.c <= contentsAddress.c && merge.e.c >= contentsAddress.c);
+    expect(contentsMerge).toBeUndefined();
+    expect(contentsCell.l?.Target).toContain('Overview');
+  });
+
+  it('exports installation-guide Markdown sections as navigable worksheets', async () => {
+    const provider = {
+      ...solution, missingDependencies: [],
+      metadata: { ...solution.metadata, uniqueName: 'provider', displayName: 'Provider' },
+    };
+    const consumer = {
+      ...solution, missingDependencies: [],
+      metadata: {
+        ...solution.metadata,
+        uniqueName: 'consumer',
+        displayName: 'Consumer',
+        dependencies: [{ solutionName: 'provider' }],
+      },
+    };
+    const plan = analyzeInstallation([consumer, provider]);
+    const blob = await createInstallationGuideWorkbook([
+      '# Solution Installation Guide',
+      '',
+      '## Installation Order',
+      '',
+      '| Order | Solution |',
+      '| --- | --- |',
+      '| 1 | Provider |',
+      '',
+      '## Missing Dependencies',
+      '',
+      'No missing dependencies.',
+    ].join('\n'), plan);
+    const workbook = await readWorkbook(blob);
+    expect(workbook.SheetNames).toEqual(expect.arrayContaining(['Overview', 'Installation Order', 'Missing Dependencies']));
+    expect(XLSX.utils.sheet_to_json<string[]>(workbook.Sheets['Installation Order'], { header: 1 }).flat()).toContain('Provider');
+    expect(workbook.SheetNames).toEqual(expect.arrayContaining([
+      'Installation Nodes', 'Dependency Edges', 'Blocker Details', 'Circular Dependencies',
+    ]));
+    const nodes = XLSX.utils.sheet_to_json<string[]>(workbook.Sheets['Installation Nodes'], { header: 1 });
+    expect(nodes.find((row) => row[1] === 'provider')?.[4]).toBe(1);
+    expect(nodes.find((row) => row[1] === 'consumer')?.[4]).toBe(2);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    expect(Object.keys(zip.files).some((name) => /^xl\/charts\/chart\d+\.xml$/.test(name))).toBe(true);
+    expect(rowCellsByValue(workbook.Sheets['Installation Nodes'], 'Back to Contents')).toHaveLength(1);
+    const overviewTitle = workbook.Sheets.Overview.A1;
+    expect(overviewTitle?.l).toBeUndefined();
+    const guideContents = rowCellsByValue(workbook.Sheets.Overview, 'Back to Contents')[0];
+    expect(guideContents.l?.Target).toContain('Overview');
+  });
+
+  it('preserves oversized text in linked continuation rows with source return links', async () => {
+    const longDescription = 'Oversized dependency evidence. '.repeat(1200);
+    const workbook = await readWorkbook(await createPackagedSolutionWorkbook({
+      ...solution,
+      entities: [{
+        name: 'sample_long', logicalName: 'sample_long', displayName: 'Long', description: longDescription,
+        isCustom: true, relationships: [], attributes: [],
+      }],
+    }));
+    const rows = XLSX.utils.sheet_to_json<string[]>(workbook.Sheets['Text Continuations'], { header: 1 });
+    expect(rows).toHaveLength(5);
+    expect(rows[1][3].length).toBeLessThanOrEqual(32767);
+    expect(workbook.Sheets['Text Continuations'].A2?.l?.Target).toContain('#');
+    expect(Object.values(workbook.Sheets.Tables).some((cell) =>
+      typeof cell === 'object' && cell !== null && 'c' in cell && Array.isArray(cell.c))).toBe(true);
+  });
+
+  it('meets workbook accessibility structure checks', async () => {
+    expect(contrastRatio('FFFFFF', '1D4ED8')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('000000', 'D6DCE4')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('FFFFFF', '252835')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('1D4ED8', 'DBEAFE')).toBeGreaterThanOrEqual(4.5);
+    const plan = analyzeInstallation([{
+      ...solution,
+      missingDependencies: [],
+      metadata: { ...solution.metadata, dependencies: [] },
+    }]);
+    const blob = await createInstallationGuideWorkbook([
+      '# Solution Installation Guide',
+      '',
+      '## Summary',
+      '',
+      '| Measure | Count |',
+      '| --- | --- |',
+      '| Selected solutions | 1 |',
+    ].join('\n'), plan);
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const workbook = await readWorkbook(blob);
+    for (const name of workbook.SheetNames) {
+      const sheet = workbook.Sheets[name];
+      const links = Object.entries(sheet).filter(([address, cell]) =>
+        !address.startsWith('!') && (cell as XLSX.CellObject).l);
+      links.forEach(([address, cell]) => {
+        expect(String((cell as XLSX.CellObject).v ?? '').trim(), `${name}!${address} link text`).not.toBe('');
+        expect(String((cell as XLSX.CellObject).l?.Tooltip ?? '').trim(), `${name}!${address} link purpose`).not.toBe('');
+      });
+      const contentsCells = rowCellsByValue(sheet, 'Back to Contents');
+      expect(contentsCells, `${name} contents link`).toHaveLength(1);
+      expect(contentsCells[0].l?.Target).toContain('Overview');
+    }
+    const tableXml = await Promise.all(Object.keys(zip.files)
+      .filter((name) => /^xl\/tables\/table\d+\.xml$/.test(name))
+      .map((name) => zip.file(name)!.async('string')));
+    expect(tableXml.length).toBeGreaterThan(0);
+    tableXml.forEach((xml) => {
+      const headers = [...xml.matchAll(/<tableColumn\b[^>]*\bname="([^"]+)"/g)].map((match) => match[1]);
+      expect(headers.every((header) => header.trim().length > 0)).toBe(true);
+      expect(new Set(headers.map((header) => header.toLowerCase())).size).toBe(headers.length);
+    });
+    const chartXml = await Promise.all(Object.keys(zip.files)
+      .filter((name) => /^xl\/charts\/chart\d+\.xml$/.test(name))
+      .map((name) => zip.file(name)!.async('string')));
+    expect(chartXml.length).toBeGreaterThan(0);
+    chartXml.forEach((xml) => expect(xml).toContain('<c:title>'));
+    const drawingXml = await Promise.all(Object.keys(zip.files)
+      .filter((name) => /^xl\/drawings\/drawing\d+\.xml$/.test(name))
+      .map((name) => zip.file(name)!.async('string')));
+    drawingXml.forEach((xml) => expect(xml).toMatch(/descr="[^"]+"/));
+    const dashboard = XLSX.utils.sheet_to_json<string[]>(workbook.Sheets.Dashboard, { header: 1 });
+    expect(dashboard.flat()).toEqual(expect.arrayContaining([
+      'Installation readiness', 'Prerequisite impact', 'Selected-set status',
+    ]));
+  });
+
   it('creates a non-empty styled workbook blob with an integration sheet', () => {
     const workbook = createSolutionWorkbook(solution);
     expect(workbook.type).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -327,15 +494,15 @@ describe('Excel solution export', () => {
     expect(dependencyTitle).toBe(header + source.entities[0].attributes.length + 2);
     expect(rows[dependencyTitle - 1] ?? []).toEqual([]);
     expect(rows.slice(header + 1, dependencyTitle - 1).map((row) => row[0])).toEqual(['Age', 'Customer', 'Name']);
-    expect(rows[dependencyTitle + 2]).toEqual(['Dependent Item', 'Item Type', 'Required Component', 'Required Type', 'Solution', 'Status', 'Detail']);
-    expect(rows[dependencyTitle + 3]).toEqual(['sample_zebra.sample_customer', 'Column', 'account', 'Table', 'sample',
+    expect(rows[dependencyTitle + 2]).toEqual(['Dependent Item', 'Dependent ID', 'Item Type', 'Required Component', 'Required ID', 'Required Type', 'Solution', 'Status', 'Detail']);
+    expect(rows[dependencyTitle + 3]).toEqual(['sample_zebra.sample_customer', '', 'Column', 'account', '', 'Table', 'sample',
       'Standard platform component', 'Standard Dataverse component present in every environment.']);
     expect(rows.flat().join(' ')).not.toContain('other_script');
     expect(rows.flat().join(' ')).not.toContain('unrelated_requirement');
     expect(zebra['!autofilter']?.ref).toBe('A11:I14');
     expect(zebra.E1.l?.Target).toBe("#'Tables'!A1");
     const aardvarkRows = XLSX.utils.sheet_to_json<string[]>(workbook.Sheets.Aardvark, { header: 1 });
-    expect(aardvarkRows.find((row) => row[0] === 'Aardvark form')?.slice(0, 6)).toEqual(['Aardvark form', 'Form', 'other_script', 'Web Resource', 'sample', 'Missing']);
+    expect(aardvarkRows.find((row) => row[0] === 'Aardvark form')?.slice(0, 8)).toEqual(['Aardvark form', '', 'Form', 'other_script', '', 'Web Resource', 'sample', 'Missing']);
     expect(aardvarkRows.flat()).not.toContain('account');
     expect(XLSX.utils.sheet_to_json<string[]>(workbook.Sheets.Tables, { header: 1 }).flat()).not.toContain('Import Dependencies');
   });

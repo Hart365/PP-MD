@@ -3,6 +3,7 @@ import { parseSolutionZip } from '../parser/solutionParser';
 import { generateDependencyReportMarkdown, generateInstallationMarkdown } from '../generator/localDocumentation';
 import { analyzeDependencies } from '../generator/dependencyAnalysis';
 import type { ParsedSolution } from '../types/solution';
+import { analyzeInstallation } from '../generator/installationAnalysis';
 
 const missing = (required: string, dependent = '<Dependent type="2" schemaName="new_x" parentSchemaName="new_case" />') =>
   `<MissingDependency>${required}${dependent}</MissingDependency>`;
@@ -118,7 +119,7 @@ describe('dependency analysis', () => {
     ].map((required) => missing(required)).join('')}</MissingDependencies>` });
     expect(statuses([solution])).toEqual(['consumer:contoso_/script.js:missing', 'consumer:new_absent:missing', 'consumer:new_score:missing']);
     const markdown = generateInstallationMarkdown([solution]);
-    expect(markdown).toContain('| consumer | Column: new_case.new_x | Table: new_absent | Active |');
+    expect(markdown).toContain('| consumer | Column: new_case.new_x | Table: new_absent | new_absent | – | new_absent | Not supplied | Active | Manifest owner: Active |');
     expect(markdown).toContain('contoso_core (3.1.0.0)');
     expect(markdown).toContain('Owned by managed solution contoso_core (3.1.0.0), which is not among the selected ZIPs');
     expect(markdown).toContain('No solution can be installed');
@@ -165,9 +166,17 @@ describe('dependency analysis', () => {
     expect(versions).not.toContain('| final | 1.0.0.0');
     const first = await zipSolution('first', { manifest: '<Dependencies><Dependency solution="second" /></Dependencies>' });
     const second = await zipSolution('second', { manifest: '<Dependencies><Dependency solution="first" /></Dependencies>' });
-    const cycle = generateInstallationMarkdown([first, second]);
+    const downstream = await zipSolution('downstream', { manifest: '<Dependencies><Dependency solution="first" /></Dependencies>' });
+    const cycle = generateInstallationMarkdown([first, second, downstream]);
     expect(cycle).toContain('Circular dependency');
     expect(cycle).not.toMatch(/\| 1 \|/);
+    expect(cycle).toContain('Waits for blocked prerequisite first.');
+    expect(cycle).not.toContain('| downstream | Circular dependency:');
+    const plan = analyzeInstallation([first, second, downstream]);
+    expect(plan.cycles).toHaveLength(1);
+    expect(plan.cycles[0].members.map((item) => item.metadata.uniqueName).sort()).toEqual(['first', 'second']);
+    expect(plan.cycles[0].waiting.map((item) => item.metadata.uniqueName)).toEqual(['downstream']);
+    expect(plan.installable).toEqual([]);
     const newer = await zipSolution('base', { version: '2.0.0.0' });
     expect(generateInstallationMarkdown([base, newer])).toContain('Several ZIPs of base are selected');
     expect(generateInstallationMarkdown([{ ...base, missingDependencies: undefined }])).toContain('Import dependencies have not been collected');

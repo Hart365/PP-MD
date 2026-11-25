@@ -35,6 +35,10 @@ function readManifestMissingDependencies(xml: string): { dependencies: MissingDe
       .filter((attribute) => /^@_id\./i.test(attribute)).map((attribute) => xmlStr(item, attribute)).filter(Boolean);
     const name = (item: Record<string, unknown>) => ciStr(item, '@_schemaName') || keys(item)[0] || ciStr(item, '@_displayName', '@_id');
     const type = (item: Record<string, unknown>) => dependencyComponentType(ciStr(item, '@_type'));
+    const componentType = (item: Record<string, unknown>) => {
+      const value = ciStr(item, '@_type');
+      return /^\d+$/.test(value) ? Number(value) : undefined;
+    };
     const requiredName = name(required);
     const dependentLeaf = name(dependent);
     if (!requiredName || !dependentLeaf) {
@@ -54,8 +58,11 @@ function readManifestMissingDependencies(xml: string): { dependencies: MissingDe
       requiredName,
       requiredType: type(required),
       requiredDisplayName: ciStr(required, '@_displayName') || undefined,
+      requiredSchemaName: ciStr(required, '@_schemaName') || undefined,
+      requiredComponentType: componentType(required),
       requiredParent: ciStr(required, '@_parentSchemaName') || undefined,
       requiredParentDisplayName: ciStr(required, '@_parentDisplayName') || undefined,
+      requiredParentId: ciStr(required, '@_parentId') || undefined,
       dependentId: ciStr(dependent, '@_id') || undefined,
       requiredId: ciStr(required, '@_id') || undefined,
       requiredKeys: keys(required).length ? keys(required) : undefined,

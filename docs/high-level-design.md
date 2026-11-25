@@ -1,12 +1,14 @@
-## Local-File Parity in 1.3.0
+# PP-MD High-Level Design
 
-PP-MD retains its standalone Electron shell and ZIP parser. No connected Dataverse collectors or ToolBox bridge are introduced. A complete All Selected Solutions document now accompanies the existing consolidated summary. Matching peer metadata fills gaps without broadening individual top-level inventories; manifest prerequisites retain their source solution.
+## Local-File Parity
 
-Portable export adapters produce sanitised standalone HTML, searchable PDF with diagram images and source fallbacks, and styled solution workbooks. A shared download layer handles safe filenames, collisions, category folders, progress and cancellation. Diagnostics remain separate from normal documentation. The diagram renderer schedules background work with visible-first ordering and a 100-entry LRU cache.
+PP-MD retains its standalone Electron shell and local ZIP parser. No connected Dataverse collectors or ToolBox bridge are introduced. A complete All Selected Solutions document accompanies the existing consolidated summary. Matching peer metadata fills gaps without broadening individual top-level inventories; manifest prerequisites retain their source solution.
+
+Portable export adapters produce sanitised standalone HTML, searchable PDF with diagram images and source fallbacks, and packaged Excel workbooks with native tables and frozen panes. Installation guides support both Markdown and sectioned Excel. A shared download layer handles safe filenames, collisions, category folders, progress and cancellation. Diagnostics remain separate from normal documentation. CPU-intensive parsing is distributed across a bounded worker pool with compatibility fallback. The diagram renderer schedules background work with visible-first ordering, validates SVG output, and retains a 100-entry LRU cache.
+
+The selected solution set is also passed to a reusable offline installation planner. It derives provider-first steps, readiness layers, blocker propagation, missing prerequisites, strongly connected cycle groups, downstream waiters and component evidence once; Markdown and Excel render that same model so the two outputs remain consistent.
 
 See [local-file parity](local-file-parity.md) for capability boundaries, exclusions, and verification requirements.
-
-# PP-MD High-Level Design
 
 ## Overview
 PP-MD is a Windows desktop documentation generator for Microsoft Power Platform solutions. The application ingests one or more solution ZIP archives, parses Dataverse and solution metadata, and generates human-readable markdown documentation with Mermaid diagrams.
@@ -20,22 +22,26 @@ PP-MD is a Windows desktop documentation generator for Microsoft Power Platform 
 ## Architectural Style
 - Client-heavy, local-processing architecture.
 - Electron shell hosting a React + TypeScript renderer.
-- In-process parsing and markdown generation pipeline (no backend service).
+- Worker-backed local parsing and application-side markdown generation (no backend service).
 - Layered modules:
   - Presentation layer (React components and CSS modules)
   - Application orchestration layer (App.tsx)
   - Domain processing layer (solutionParser.ts, markdownGenerator.ts)
+  - Worker coordination layer (src/workers)
+  - Export adapters (HTML, PDF, Excel and OOXML packaging)
   - Packaging/runtime layer (Electron main process and build scripts)
 
 ## Context Diagram
 ```mermaid
 flowchart LR
   U[User] --> UI[React UI]
-  UI --> P[Solution Parser]
+  UI --> W[Background Worker Pool]
+  W --> P[Solution Parser]
   P --> M[ParsedSolution Model]
   M --> G[Markdown Generator]
   G --> V[Markdown Viewer]
-  G --> E[Export .md]
+  G --> E[Export adapters]
+  E --> FS[Local Downloads]
   UI --> FS[Local File Input]
   UI --> CFG[Doc Config Presets]
   Electron[Electron Main] --> UI
@@ -60,12 +66,21 @@ flowchart LR
 - unzips and reads solution.xml/customizations.xml and related artifacts
 - normalizes varied XML schemas and label formats
 - emits strongly-typed ParsedSolution object
+- records manifest component types, schema/parent identities, packages and dependency evidence
+- runs with cancellation-aware progress and a bounded two-worker concurrency model
 
 ### Markdown Engine
 - transforms ParsedSolution into sectioned markdown
 - creates inventory tables and process details
 - emits Mermaid ERD and architecture diagrams
 - supports consolidated multi-solution report generation
+- produces dependency reports and provider-first installation guidance
+
+### Export Engine
+- creates sanitised standalone HTML and searchable PDF
+- creates Excel solution workbooks with native Excel tables, frozen headers, navigation and overflow continuations
+- exports installation-guide sections to dedicated worksheets
+- handles safe names, collisions, batch ZIP paths, progress and cancellation
 
 ### Build and Packaging Pipeline
 - Vite + TypeScript frontend build
@@ -74,17 +89,19 @@ flowchart LR
 
 ## Data Flow
 1. User selects one or more .zip files in the drop zone.
-2. App orchestrator loops each file through parseSolutionZip.
+2. App orchestration passes ZIP buffers to the worker pool (up to two active parses) and falls back locally if the host cannot run workers.
 3. ParsedSolution objects are passed to generateMarkdown.
 4. Generated markdown is displayed in MarkdownViewer.
-5. User exports one or more markdown files to local storage.
+5. User exports one or more documents as Markdown, HTML, PDF or Excel to local storage.
 6. Optional consolidated markdown is generated across all loaded solutions.
 
 ## Technology Stack
 - Runtime shell: Electron
-- Frontend: React 18 + TypeScript + Vite
+- Frontend: React 19 + TypeScript 6 + Vite 8
 - Parsing: JSZip + fast-xml-parser
 - Rendering: react-markdown + remark-gfm + Mermaid
+- Background processing: inline Web Workers
+- Excel: xlsx-js-style plus PP-MD OOXML packaging
 - Packaging: electron-builder + PowerShell automation
 
 ## Security and Safety Posture

@@ -11,6 +11,9 @@ import { LruCache } from '../../utils/lruCache';
 const mermaidCfg = {
   startOnLoad: false,
   securityLevel: 'strict' as const,
+  htmlLabels: false,
+  look: 'classic' as const,
+  layout: 'dagre',
   fontFamily: "'Segoe UI', system-ui, sans-serif",
   themeVariables: { fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: '11px' },
   flowchart: { useMaxWidth: false, htmlLabels: false },
@@ -69,20 +72,47 @@ const svgCache = new LruCache<string, { svg: string; sourceId: string }>(MERMAID
 
 let offscreenRenderCounter = 0;
 
+function addDiagramBackground(svg: string, background: unknown): string {
+  if (typeof background !== 'string' || /[;'"<>\\]/.test(background)
+    || (typeof CSS !== 'undefined' && !CSS.supports('color', background))) {
+    throw new Error('Mermaid returned an invalid diagram background colour.');
+  }
+  const root = /^<svg(?=\s|>)[^>]*>/i.exec(svg);
+  if (!root) throw new Error('Mermaid did not return an SVG diagram.');
+  const viewBox = /\bviewBox\s*=\s*["']([^"']+)["']/i.exec(root[0]);
+  const dimensions = viewBox?.[1].trim().split(/[\s,]+/).map(Number);
+  if (dimensions && (dimensions.length !== 4 || dimensions.some((value) => !Number.isFinite(value))
+    || dimensions[2] <= 0 || dimensions[3] <= 0)) {
+    throw new Error('Mermaid returned an invalid SVG viewBox.');
+  }
+  const [x, y, width, height] = dimensions ?? [0, 0, '100%', '100%'];
+  const rect = `<rect x="${x}" y="${y}" width="${width}" height="${height}" style="fill:${background};stroke:none" aria-hidden="true"/>`;
+  const remainder = svg.slice(root[0].length);
+  const metadata = /^(?:\s*<title\b[^>]*>[\s\S]*?<\/title>|\s*<desc\b[^>]*>[\s\S]*?<\/desc>)*/i.exec(remainder)?.[0] ?? '';
+  return `${root[0]}${metadata}${rect}${remainder.slice(metadata.length)}`;
+}
+
+async function renderSvg(id: string, chart: string, theme: MermaidDiagramProps['theme']): Promise<string> {
+  const m = (await import('mermaid')).default;
+  return scheduleRender(async () => {
+    m.initialize({ ...mermaidCfg, theme });
+    const { svg } = await m.render(id, chart);
+    const themeVariables: unknown = m.mermaidAPI.getConfig().themeVariables;
+    const background = themeVariables && typeof themeVariables === 'object' && 'background' in themeVariables
+      ? themeVariables.background : undefined;
+    return addDiagramBackground(svg, background);
+  });
+}
+
 /**
  * Renders a Mermaid chart to SVG markup outside of the React tree (used by
  * batch exports). Shares the viewer's serialized render queue and config so
  * it never competes with on-screen diagrams for the main thread.
  */
 export async function renderMermaidToSvg(chart: string, theme: MermaidDiagramProps['theme'] = 'neutral'): Promise<string> {
-  const m = (await import('mermaid')).default;
   offscreenRenderCounter += 1;
   const renderId = `m_export_${offscreenRenderCounter}`;
-  const { svg } = await scheduleRender(() => {
-    m.initialize({ ...mermaidCfg, theme });
-    return m.render(renderId, chart);
-  });
-  return svg;
+  return renderSvg(renderId, chart, theme);
 }
 
 export interface MermaidDiagramProps {
@@ -306,11 +336,9 @@ export function MermaidDiagram({ chart, caption = 'Diagram', onRendered, theme =
         if (cached) {
           svg = cached.sourceId === id ? cached.svg : cached.svg.split(cached.sourceId).join(id);
         } else {
-          const m = (await import('mermaid')).default;
-          m.initialize({ ...mermaidCfg, theme });
           if (!active) return;
           const renderId = `m_${id}`;
-          ({ svg } = await scheduleRender(() => m.render(renderId, chart)));
+          svg = await renderSvg(renderId, chart, theme);
           svgCache.set(cacheKey, { svg, sourceId: id });
         }
 
