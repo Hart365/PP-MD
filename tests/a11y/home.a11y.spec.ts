@@ -200,6 +200,8 @@ test('local solution parity workflow exports real files and remains accessible',
   await page.getByRole('button', { name: 'Close toolbar menu' }).click();
   const mobileAnalysis = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
   expect(mobileAnalysis.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => `${node.target.join(' ')} ${node.failureSummary}`).join('\n')}`)).toEqual([]);
+  const diagramScrollRegions = page.getByRole('region', { name: /diagram scroll area$/i });
+  await expect(diagramScrollRegions.first()).toHaveAttribute('tabindex', '0');
   const controls = await page.getByRole('toolbar', { name: 'Documentation actions' }).getByRole('button').evaluateAll((buttons) => buttons.map((button) => {
     const bounds = button.getBoundingClientRect();
     return { right: bounds.right, left: bounds.left };

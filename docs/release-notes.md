@@ -1,8 +1,12 @@
 # PP-MD Release Notes
 
+## Version 1.3.12 - 2026-11-25
+
+Mermaid diagram scroll regions are explicitly keyboard-focusable and descriptively named, fixing the Linux GitHub Actions WCAG 2.2 narrow-screen failure.
+
 ## Version 1.3.11 - 2026-11-25
 
-The Solution Dependency and Installation Order report is backed by a reusable selected-ZIP graph analysis. It calculates provider-first installation steps, readiness layers, propagated blockers, strongly connected cycles, downstream waiters and component evidence, then shares that same model with structured Excel worksheets for installation nodes, dependency edges, blocker details and cycles. Excel workbooks now include linked contents, labelled return navigation, accessible chart alternatives, equivalent data tables, preserved continuation links, and automated WCAG-oriented OOXML checks.
+The Solution Dependency and Installation Order report is backed by a reusable selected-ZIP graph analysis. It calculates provider-first installation steps, readiness layers, propagated blockers, strongly connected cycles, downstream waiters and component evidence, then shares that same model with structured Excel worksheets for installation nodes, dependency edges, blocker details and cycles. Excel workbooks now include linked contents, labelled return navigation, accessible chart alternatives, equivalent data tables, preserved continuation links, and automated WCAG-oriented OOXML checks. Mermaid diagram scroll regions are keyboard-focusable with descriptive names at narrow widths.
 
 ## Version 1.3.10 - 2026-11-23
 

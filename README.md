@@ -2,7 +2,7 @@
 
 PP-MD is a Windows desktop application that turns Microsoft Power Platform solution ZIP exports into structured, portable Markdown documentation with Mermaid diagrams. No server, no cloud upload, and no licence key required.
 
-Current version: **1.3.11**. Includes the Solution Dependency and Installation Order report, worker-backed solution parsing, and enhanced accessible Excel exports. See [release notes](Release-Notes.md).
+Current version: **1.3.12**. Includes the Solution Dependency and Installation Order report, worker-backed solution parsing, enhanced accessible Excel exports, and keyboard-accessible Mermaid scroll regions. See [release notes](Release-Notes.md).
 
 See [Accessibility statement](ACCESSIBILITY.MD), [contributing guide](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md), and [security policy](SECURITY.md).
 

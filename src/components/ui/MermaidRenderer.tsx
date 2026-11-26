@@ -522,6 +522,9 @@ export function MermaidDiagram({ chart, caption = 'Diagram', onRendered, theme =
 
       <div
         ref={scrlRef}
+        role="region"
+        aria-label={`${caption} diagram scroll area`}
+        tabIndex={0}
         style={{
           flex: fs ? 1 : undefined,
           minHeight: fs ? 0 : rendered ? 'auto' : '60px',
@@ -533,6 +536,7 @@ export function MermaidDiagram({ chart, caption = 'Diagram', onRendered, theme =
           maxHeight: fs ? 'none' : '85vh',
           background: 'var(--color-surface)',
           cursor: zoom < 1 ? 'zoom-in' : zoom > 1 ? 'grab' : 'default',
+          outlineOffset: '2px',
         }}
       >
         <div

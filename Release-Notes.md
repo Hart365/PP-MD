@@ -1,5 +1,9 @@
 # PP-MD Release Notes
 
+## Version 1.3.12 - 2026-11-25
+
+- Fix the Linux/GitHub Actions narrow-screen WCAG regression by making Mermaid diagram scroll regions keyboard-focusable and assigning a descriptive region label.
+
 ## Version 1.3.11 - 2026-11-25
 
 - Fix Excel return navigation so only the explicit “Back to Contents” cell links back; preserve summary/table headers and keep the link outside merged title ranges. Add an automated WCAG-oriented workbook gate covering text contrast, unique table headers, descriptive links, chart alternatives/equivalent data, and merged-range boundaries.
