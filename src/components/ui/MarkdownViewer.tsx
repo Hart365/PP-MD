@@ -529,7 +529,7 @@ export function MarkdownViewer({ markdown, title, fileName, onExport, onExportHt
             className={styles.toolbarBtn}
             onClick={() => setShowRaw((v) => !v)}
             aria-pressed={showRaw}
-            aria-label={showRaw ? 'Switch to rendered view' : 'Switch to raw Markdown view'}
+            aria-label={showRaw ? 'Rendered — Switch to rendered view' : 'Raw MD — Switch to raw Markdown view'}
           >
             {showRaw ? '🖼️ Rendered' : '📝 Raw MD'}
           </button>

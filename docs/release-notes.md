@@ -1,5 +1,9 @@
 # PP-MD Release Notes
 
+## Version 1.3.13 - 2026-11-26
+
+The toolchain now runs on Node.js 24/npm 12 and uses current Node-24-backed GitHub actions. Direct dependencies are current compatible releases, including Electron 45, Mermaid 12, Vite 8.4, Vitest 5, Playwright 1.65 and jsdom 31. The dependency audit reports zero vulnerabilities. TypeScript remains at 6.0.3 because the current TypeScript ESLint release does not yet support TypeScript 7.
+
 ## Version 1.3.12 - 2026-11-25
 
 Mermaid diagram scroll regions are explicitly keyboard-focusable and descriptively named, fixing the Linux GitHub Actions WCAG 2.2 narrow-screen failure.

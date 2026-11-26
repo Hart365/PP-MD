@@ -25,7 +25,7 @@ export function ThemeToggle() {
       type="button"
       role="switch"
       aria-checked={isDark}
-      aria-label={`Switch to ${isDark ? 'light' : 'dark'} theme`}
+      aria-label={`${isDark ? 'Light mode' : 'Dark mode'} — Switch to ${isDark ? 'light' : 'dark'} theme`}
       title={`Switch to ${isDark ? 'light' : 'dark'} theme (currently ${theme})`}
       className={styles.toggle}
       onClick={toggleTheme}

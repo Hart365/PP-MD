@@ -1,5 +1,13 @@
 # PP-MD Release Notes
 
+## Version 1.3.13 - 2026-11-26
+
+- Upgrade the complete direct dependency set to current compatible releases, including Electron 45, Mermaid 12, React 19.3, Vite 8.4, Vitest 5, Playwright 1.65 and jsdom 31.
+- Move CI from Node 22 to Node 24/npm 12 and upgrade checkout, setup-node and upload-artifact actions to Node-24-backed majors to remove the Node 20 action-runtime warnings.
+- Refresh accessibility checks for axe-core 4.14 and correct visible-label/access-name mismatches and keyboard access discovered by the newer rules.
+- Resolve all reported npm vulnerabilities with current transitive updates and a security override for the vulnerable `minimatch` ranges used by electron-builder.
+- Keep TypeScript 6.0.3 until TypeScript 7 is supported by `typescript-eslint`; this is the only direct dependency intentionally below npm's latest major.
+
 ## Version 1.3.12 - 2026-11-25
 
 - Fix the Linux/GitHub Actions narrow-screen WCAG regression by making Mermaid diagram scroll regions keyboard-focusable and assigning a descriptive region label.

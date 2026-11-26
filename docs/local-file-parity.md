@@ -1,6 +1,6 @@
 # Local-File Parity
 
-The current 1.3.12 source includes the solution-file capabilities available through `pp-md-pptb-edition` commit `db47c99` (2026-11-23), adapted for PP-MD's standalone Electron file workflow. The documented baseline began in version 1.3.0, with later 1.3.x capabilities recorded here.
+The current 1.3.13 source includes the solution-file capabilities available through `pp-md-pptb-edition` commit `db47c99` (2026-11-23), adapted for PP-MD's standalone Electron file workflow. The documented baseline began in version 1.3.0, with later 1.3.x capabilities recorded here.
 
 This port retains PP-MD's Electron packaging, update checking, configuration storage, Markdown imports/search, form layout, canvas insights, component inventory and diagram palette. It intentionally omits PPTB and connected Dataverse-specific code.
 

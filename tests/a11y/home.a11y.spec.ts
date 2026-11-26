@@ -40,7 +40,7 @@ for (const width of [1280, 320]) {
     await expect(option).toBeChecked();
     await page.locator('input[type="file"][accept*=".zip"]').setInputFiles([await solutionFile('Alpha'), await solutionFile('Beta')]);
     await page.getByRole('button', { name: 'Generate documentation for 2 files' }).click();
-    await page.getByRole('button', { name: 'View documentation for Solution Installation Guide', exact: true }).click();
+    await page.getByRole('button', { name: /^Solution Installation Guide v/ }).click();
     const viewer = page.getByRole('region', { name: 'Documentation for Solution Installation Guide', exact: true });
     await expect(viewer.getByRole('heading', { name: 'Installation Order', exact: true })).toBeVisible();
     await expect(viewer.getByRole('heading', { name: 'Missing Dependencies', exact: true })).toBeAttached();
@@ -65,7 +65,7 @@ for (const width of [1280, 320]) {
     if (width === 320) await page.getByRole('button', { name: 'Open toolbar menu' }).click();
     await page.getByRole('button', { name: 'Options', exact: true }).click();
     await page.getByRole('checkbox', { name: 'Generate installation guide', exact: true }).uncheck();
-    await expect(page.getByRole('button', { name: 'View documentation for Solution Installation Guide', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Solution Installation Guide v/ })).toHaveCount(0);
   });
 }
 
@@ -83,7 +83,7 @@ test('email-template ZIPs are ordered after schema providers and repeated upload
   await page.getByRole('checkbox', { name: 'Generate installation guide', exact: true }).check();
   await page.locator('input[type="file"][accept*=".zip"]').setInputFiles([email, columns, tables]);
   await page.getByRole('button', { name: 'Generate documentation for 3 files' }).click();
-  await page.getByRole('button', { name: 'View documentation for Solution Installation Guide', exact: true }).click();
+  await page.getByRole('button', { name: /^Solution Installation Guide v/ }).click();
   const viewer = page.getByRole('region', { name: 'Documentation for Solution Installation Guide', exact: true });
   await expect(viewer.getByRole('row').filter({ has: page.getByRole('cell', { name: 'z_tables', exact: true }) }).first()).toContainText('1');
   await expect(viewer.getByRole('row').filter({ has: page.getByRole('cell', { name: 'y_columns', exact: true }) }).first()).toContainText('2');
@@ -92,7 +92,7 @@ test('email-template ZIPs are ordered after schema providers and repeated upload
   await page.getByText('＋ Add more solution files', { exact: true }).click();
   await page.locator('input[type="file"][accept*=".zip"]').setInputFiles([tables, columns]);
   await page.getByRole('button', { name: 'Generate documentation for 2 files' }).click();
-  await page.getByRole('button', { name: 'View documentation for Solution Installation Guide', exact: true }).click();
+  await page.getByRole('button', { name: /^Solution Installation Guide v/ }).click();
   await page.getByRole('button', { name: 'Export documentation', exact: true }).click();
   const pending = page.waitForEvent('download');
   await page.getByRole('menuitem', { name: /Export \.md$/i }).click();
@@ -134,10 +134,10 @@ test('local solution parity workflow exports real files and remains accessible',
   await page.getByLabel('Include missing import dependencies').check();
   await page.locator('input[type="file"][accept*=".zip"]').setInputFiles([await solutionFile('Alpha'), await solutionFile('Beta')]);
   await page.getByRole('button', { name: 'Generate documentation for 2 files' }).click();
-  await page.getByRole('button', { name: 'View documentation for All Selected Solutions', exact: true }).click();
+  await page.getByRole('button', { name: /^All Selected Solutions v/ }).click();
   await expect(page.getByRole('region', { name: 'Documentation for All Selected Solutions', exact: true }).getByRole('heading', { name: 'Tables & Columns', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'View documentation for All Selected Solutions - Diagrams', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'View documentation for Alpha', exact: true }).click();
+  await expect(page.getByRole('button', { name: /^All Selected Solutions - Diagrams v/ })).toHaveCount(0);
+  await page.getByRole('button', { name: /^Alpha v/ }).click();
   const viewer = page.getByRole('region', { name: 'Documentation for Alpha', exact: true });
   await expect(viewer.locator('figure svg').first()).toBeVisible();
   await expect(viewer.getByRole('heading', { name: 'Missing Dependencies', exact: true })).toBeAttached();
@@ -218,7 +218,7 @@ test('diagram options control inline and companion output with a dedicated sideb
   await page.getByRole('button', { name: 'Generate documentation for 2 files' }).click();
   const sidebar = page.getByRole('navigation', { name: 'Solution navigation' });
   const diagrams = sidebar.getByRole('region', { name: 'Diagrams', exact: true });
-  await expect(sidebar.getByRole('button', { name: 'View documentation for All Selected Solutions', exact: true })).toBeVisible();
+  await expect(sidebar.getByRole('button', { name: /^All Selected Solutions v/ })).toBeVisible();
   await expect(diagrams).toHaveCount(0);
 
   async function markdownArchive() {
@@ -246,14 +246,14 @@ test('diagram options control inline and companion output with a dedicated sideb
   expect(await splitArchive.file('Alpha.md')?.async('string')).not.toContain('```mermaid');
   expect(await splitArchive.file('Alpha - Diagrams.md')?.async('string')).toContain('```mermaid');
   expect(await splitArchive.file('All Selected Solutions - Diagrams.md')?.async('string')).toContain('```mermaid');
-  await diagrams.getByRole('button', { name: 'View documentation for Alpha - Diagrams', exact: true }).click();
+  await diagrams.getByRole('button', { name: /^Alpha - Diagrams v/ }).click();
   await expect(page.getByRole('region', { name: 'Documentation for Alpha (Diagrams)', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/diagrams-sidebar.png', fullPage: true });
   await page.locator('input[type="file"][accept=".md,text/markdown"]').setInputFiles({
     name: 'Notes.md', mimeType: 'text/markdown', buffer: Buffer.from('# Notes\n\nImported document.'),
   });
   await expect(diagrams.getByRole('button')).toHaveCount(3);
-  await diagrams.getByRole('button', { name: 'View documentation for Alpha - Diagrams', exact: true }).click();
+  await diagrams.getByRole('button', { name: /^Alpha - Diagrams v/ }).click();
 
   await options.click();
   await optionsPanel.getByRole('checkbox', { name: 'Separate diagrams document', exact: true }).uncheck();
@@ -282,7 +282,7 @@ for (const width of [1280, 320]) {
     await page.getByLabel('Include diagrams', { exact: true }).uncheck();
     await page.locator('input[type="file"][accept*=".zip"]').setInputFiles([await solutionFile('Alpha'), await solutionFile('Beta')]);
     await page.getByRole('button', { name: 'Generate documentation for 2 files' }).click();
-    const combined = page.getByRole('button', { name: 'View documentation for All Selected Solutions', exact: true });
+    const combined = page.getByRole('button', { name: /^All Selected Solutions v/ });
     await expect(combined).toBeVisible();
     if (width === 320) await page.getByRole('button', { name: 'Open toolbar menu' }).click();
 
@@ -414,7 +414,7 @@ test('narrow toolbar reflows and preserves keyboard access in both themes and fo
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Open toolbar menu' })).toBeVisible();
   await page.getByRole('button', { name: 'Open toolbar menu' }).click();
-  await expect(page.getByRole('button', { name: 'Open previously generated Markdown files' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Open \.md/ })).toBeVisible();
   await page.evaluate(() => {
     document.documentElement.style.setProperty('--transition-base', '2s');
     document.documentElement.style.setProperty('--transition-fast', '1s');

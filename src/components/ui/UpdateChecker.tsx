@@ -63,7 +63,7 @@ export function UpdateChecker() {
         onClick={handleCheck}
         disabled={checking}
         title="Check for available updates"
-        aria-label="Check for updates"
+        aria-label={checking ? 'Checking — Check for updates' : 'Updates — Check for updates'}
       >
         {checking ? '⟳ Checking...' : '⟳ Updates'}
       </button>

@@ -66,7 +66,7 @@ export function SolutionSidebar({
           aria-label="Clear all solutions and start over"
           title="Start over"
         >
-          ✕
+          <span aria-hidden="true">✕</span>
         </button>
       </div>
 
@@ -87,7 +87,6 @@ export function SolutionSidebar({
                 className={itemClass}
                 onClick={() => onSelect(idx)}
                 aria-current={isActive ? 'page' : undefined}
-                aria-label={`View documentation for ${label || sol.metadata.displayName}`}
                 title={fileName}
               >
                 <span className={styles.solIcon} aria-hidden="true">
@@ -96,7 +95,7 @@ export function SolutionSidebar({
                 <span className={styles.solName}>
                   {label || sol.metadata.displayName || sol.metadata.uniqueName}
                 </span>
-                <span className={styles.solVersion} aria-label={`Version ${sol.metadata.version}`}>
+                <span className={styles.solVersion}>
                   v{sol.metadata.version}
                 </span>
               </button>

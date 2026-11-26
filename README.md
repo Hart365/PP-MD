@@ -2,7 +2,7 @@
 
 PP-MD is a Windows desktop application that turns Microsoft Power Platform solution ZIP exports into structured, portable Markdown documentation with Mermaid diagrams. No server, no cloud upload, and no licence key required.
 
-Current version: **1.3.12**. Includes the Solution Dependency and Installation Order report, worker-backed solution parsing, enhanced accessible Excel exports, and keyboard-accessible Mermaid scroll regions. See [release notes](Release-Notes.md).
+Current version: **1.3.13**. Uses a current Node 24 toolchain with updated dependencies, Node-24 GitHub Actions, enhanced accessibility checks, and no known npm audit vulnerabilities. See [release notes](Release-Notes.md).
 
 See [Accessibility statement](ACCESSIBILITY.MD), [contributing guide](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md), and [security policy](SECURITY.md).
 
@@ -229,7 +229,7 @@ The ERD can be rendered in two modes, toggled in the toolbar:
 
 | Layer | Technology |
 |---|---|
-| Desktop shell | Electron 43 |
+| Desktop shell | Electron 45 |
 | Frontend | React 19 + TypeScript 6 + Vite 8 |
 | ZIP parsing | JSZip |
 | Background processing | Inline Web Workers with two-job concurrency and compatibility fallback |
@@ -238,6 +238,7 @@ The ERD can be rendered in two modes, toggled in the toolbar:
 | Diagram rendering | Mermaid 11 |
 | Spreadsheet export | xlsx-js-style plus PP-MD OOXML packaging for real Excel tables and frozen panes |
 | Packaging | electron-builder (portable + NSIS installer) |
+| CI/runtime | Node.js 24 + npm 12 |
 
 All processing runs **entirely locally** — no data leaves your machine.
 
@@ -245,7 +246,7 @@ All processing runs **entirely locally** — no data leaves your machine.
 
 ## Building from Source
 
-**Prerequisites:** Node.js 22+, npm, Windows (for packaging)
+**Prerequisites:** Node.js 24.15+ (npm 12+), Windows for desktop packaging
 
 ```powershell
 # Install dependencies

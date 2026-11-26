@@ -96,8 +96,9 @@ flowchart LR
 6. Optional consolidated markdown is generated across all loaded solutions.
 
 ## Technology Stack
-- Runtime shell: Electron
+- Runtime shell: Electron 45
 - Frontend: React 19 + TypeScript 6 + Vite 8
+- Toolchain runtime: Node.js 24 + npm 12
 - Parsing: JSZip + fast-xml-parser
 - Rendering: react-markdown + remark-gfm + Mermaid
 - Background processing: inline Web Workers

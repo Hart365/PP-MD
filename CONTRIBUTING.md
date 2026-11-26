@@ -6,7 +6,7 @@ Use the [issue chooser](https://github.com/Hart365/PP-MD/issues/new/choose). For
 
 ## Development
 
-Use Node.js 22 or later, npm, and Windows for desktop release builds.
+Use Node.js 24.15 or later, npm 12+, and Windows for desktop release builds.
 
 ```powershell
 npm ci

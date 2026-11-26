@@ -1106,7 +1106,7 @@ export default function App() {
               className={styles.headerBtn}
               onClick={handleOpenMarkdownClick}
               disabled={isProcessing}
-              aria-label="Open previously generated Markdown files"
+              aria-label="Open .md — Open previously generated Markdown files"
             >
               📂 Open .md
             </button>
@@ -1116,7 +1116,7 @@ export default function App() {
                 type="button"
                 className={styles.headerBtn}
                 onClick={handleToggleErdMode}
-                aria-label="Toggle ERD detail level"
+                aria-label={`${erdMode === 'compact' ? 'ERD: Compact' : 'ERD: Detailed'} — Toggle ERD detail level`}
               >
                 {erdMode === 'compact' ? 'ERD: Compact' : 'ERD: Detailed'}
               </button>
@@ -1155,12 +1155,12 @@ export default function App() {
                 type="button"
                 className={styles.headerBtn}
                 onClick={handleReset}
-                aria-label="Clear all results and add new files"
+                aria-label="New — Clear all results and add new files"
               >
                 ＋ New
               </button>
             )}
-            <a className={styles.headerBtn} href="https://github.com/Hart365/PP-MD" target="_blank" rel="noreferrer" aria-label="PP-MD on GitHub (opens in a new tab)">GitHub</a>
+            <a className={styles.headerBtn} href="https://github.com/Hart365/PP-MD" target="_blank" rel="noreferrer" aria-label="GitHub — PP-MD repository (opens in a new tab)">GitHub</a>
             <UpdateChecker />
             <ThemeToggle />
           </div>
